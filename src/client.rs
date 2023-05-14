@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use rustls::{ClientConfig, ClientConnection};
+use rustls::{ClientConfig, ClientConnection, Stream};
 
 use crate::{request_builder::RequestBuilder, url::Url};
 
@@ -59,6 +59,17 @@ impl SseClient {
     pub fn json_body<T: serde::Serialize>(mut self, body: T) -> Self {
         self.request_builder = self.request_builder.json(body);
         self
+    }
+    pub fn stream_reader<'a>(
+        &'a mut self,
+    ) -> Result<BufReader<Stream<'a, ClientConnection, TcpStream>>> {
+        let req = self.request_builder.to_request();
+        let mut tls_stream = rustls::Stream::new(&mut self.client, &mut self.tcp_stream);
+        tls_stream
+            .write_all(req.as_bytes())
+            .map_err(|e| SseClientError::ClientConnectionError(e.to_string()))?;
+        let reader = BufReader::new(tls_stream);
+        Ok(reader)
     }
     pub fn read_stream(mut self, line_handler: impl Fn(&str) -> Result<()>) -> Result<()> {
         let req = self.request_builder.to_request();

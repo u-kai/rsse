@@ -1,4 +1,4 @@
-use std::io::{stdout, Write};
+use std::io::{stdout, BufRead, Write};
 
 use rsse::client::SseClient;
 
@@ -82,30 +82,47 @@ pub struct ChatChoicesDelta {
 }
 
 fn main() {
-    let client = SseClient::default("https://api.openai.com/v1/chat/completions").unwrap();
-    client
-        .bearer_auth(std::env::var("OPENAI_API_KEY").unwrap().as_str())
-        .post()
-        .json_body(ChatRequest {
-            stream: true,
-            model: OpenAIModel::Gpt3Dot5Turbo,
-            messages: vec![Message {
-                role: Role::User,
-                content: "今日は".to_string(),
-            }],
-        })
-        .read_stream(|line| {
-            let res = serde_json::from_str::<Chat>(line).unwrap();
-            print!(
-                "{}",
-                res.choices[0]
-                    .delta
-                    .content
-                    .as_ref()
-                    .unwrap_or(&"".to_string())
-            );
-            stdout().flush().unwrap();
-            Ok(())
-        })
-        .unwrap();
+    loop {
+        let mut message = String::new();
+        print!("{} > ", std::env::var("USER").unwrap_or_default());
+        std::io::stdout().flush().unwrap();
+        std::io::stdin().read_line(&mut message).unwrap();
+        let mut client = SseClient::default("https://api.openai.com/v1/chat/completions")
+            .unwrap()
+            .bearer_auth(std::env::var("OPENAI_API_KEY").unwrap().as_str())
+            .post()
+            .json_body(ChatRequest {
+                stream: true,
+                model: OpenAIModel::Gpt3Dot5Turbo,
+                messages: vec![Message {
+                    role: Role::User,
+                    content: message,
+                }],
+            });
+        let mut reader = client.stream_reader().unwrap();
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap() > 0 {
+            if line.starts_with("data:") {
+                let data = line.trim_start_matches("data:").trim();
+                let chat: serde_json::Result<Chat> = serde_json::from_str(data);
+                match chat {
+                    Ok(chat) => {
+                        if let Some(choice) = chat.choices.first() {
+                            if let Some(content) = &choice.delta.content {
+                                print!("{}", content);
+                                stdout().flush().unwrap();
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        if data == "[DONE]" {
+                            break;
+                        }
+                        println!("{:?}", e);
+                    }
+                }
+            }
+            line.clear();
+        }
+    }
 }
