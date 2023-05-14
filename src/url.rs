@@ -35,6 +35,9 @@ impl Url {
             path: host_and_maybe_path.next().map(|s| s.to_string()),
         })
     }
+    pub fn to_addr_str(&self) -> String {
+        format!("{}:{}", self.host(), self.port())
+    }
     pub fn to_string(&self) -> String {
         let mut s = String::new();
         s.push_str(self.scheme());
@@ -98,6 +101,14 @@ pub enum UrlError {
     InvalidSchema(String),
     InvalidString(String),
 }
+impl UrlError {
+    pub fn to_string(&self) -> String {
+        match self {
+            UrlError::InvalidSchema(s) => format!("Invalid schema: {}", s),
+            UrlError::InvalidString(s) => format!("Invalid string: {}", s),
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,6 +139,11 @@ mod tests {
         assert_eq!(url.scheme(), "https");
         let url = Url::from_str("http://localhost/test").unwrap();
         assert_eq!(url.scheme(), "http");
+    }
+    #[test]
+    fn url構造体はaddr_strを返すことができる() {
+        let url = Url::from_str("https://localhost/test").unwrap();
+        assert_eq!(url.to_addr_str(), "localhost:443");
     }
     #[test]
     fn url構造体はportを返すことができる() {
