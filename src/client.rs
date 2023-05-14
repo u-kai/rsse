@@ -29,6 +29,7 @@ impl Display for SseClientError {
         }
     }
 }
+impl std::error::Error for SseClientError {}
 
 type Result<T> = std::result::Result<T, SseClientError>;
 
