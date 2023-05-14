@@ -111,13 +111,29 @@ mod tests {
         assert_eq!(url.to_string(), "https://localhost/test");
     }
     #[test]
-    fn url構造体はpathを返すことができる() {}
+    fn url構造体はpathを返すことができる() {
+        let url = Url::from_str("https://localhost/test").unwrap();
+        assert_eq!(url.path(), "/test");
+        let url = Url::from_str("https://localhost").unwrap();
+        assert_eq!(url.path(), "/");
+    }
     #[test]
-    fn url構造体はhostを返すことができる() {}
+    fn url構造体はhostを返すことができる() {
+        let url = Url::from_str("https://localhost/test").unwrap();
+        assert_eq!(url.host(), "localhost");
+    }
     #[test]
-    fn url構造体はスキーマを返すことができる() {}
+    fn url構造体はスキーマを返すことができる() {
+        let url = Url::from_str("https://localhost/test").unwrap();
+        assert_eq!(url.scheme(), "https");
+        let url = Url::from_str("http://localhost/test").unwrap();
+        assert_eq!(url.scheme(), "http");
+    }
     #[test]
-    fn url構造体はportを返すことができる() {}
-    #[test]
-    fn httpからurl構造体を作成できる() {}
+    fn url構造体はportを返すことができる() {
+        let url = Url::from_str("https://localhost/test").unwrap();
+        assert_eq!(url.port(), 443);
+        let url = Url::from_str("http://localhost/test:10000").unwrap();
+        assert_eq!(url.port(), 10000);
+    }
 }
