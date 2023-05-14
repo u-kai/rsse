@@ -18,14 +18,16 @@ pub struct SseClient {
 pub enum SseClientError {
     InvalidUrlError(String),
     ClientConnectionError(String),
+    TcpStreamConnectionError(String),
     ReadLineError(String),
 }
 impl Display for SseClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SseClientError::InvalidUrlError(e) => write!(f, "InvalidUrlError: {}", e),
-            SseClientError::ClientConnectionError(e) => write!(f, "ClientConnectionError: {}", e),
-            SseClientError::ReadLineError(e) => write!(f, "ReadLineError: {}", e),
+            Self::InvalidUrlError(e) => write!(f, "InvalidUrlError: {}", e),
+            Self::ClientConnectionError(e) => write!(f, "ClientConnectionError: {}", e),
+            Self::ReadLineError(e) => write!(f, "ReadLineError: {}", e),
+            Self::TcpStreamConnectionError(e) => write!(f, "TcpStreamConnectionError: {}", e),
         }
     }
 }
@@ -51,7 +53,7 @@ impl SseClient {
         let client = ClientConnection::new(Arc::new(config), url.host().try_into().unwrap())
             .map_err(|e| SseClientError::ClientConnectionError(e.to_string()))?;
         let socket = TcpStream::connect(url.to_addr_str())
-            .map_err(|e| SseClientError::ClientConnectionError(e.to_string()))?;
+            .map_err(|e| SseClientError::TcpStreamConnectionError(e.to_string()))?;
         Ok(Self {
             client,
             tcp_stream: socket,
@@ -63,9 +65,12 @@ impl SseClient {
     ) -> Result<BufReader<Stream<'a, ClientConnection, TcpStream>>> {
         let req = request.bytes();
         let mut tls_stream = rustls::Stream::new(&mut self.client, &mut self.tcp_stream);
-        tls_stream
-            .write_all(req)
-            .map_err(|e| SseClientError::ClientConnectionError(e.to_string()))?;
+        tls_stream.write_all(req).map_err(|e| {
+            SseClientError::ClientConnectionError(format!(
+                "error : {:#?}\nrequest : {:#?}",
+                e, request
+            ))
+        })?;
         let reader = BufReader::new(tls_stream);
         Ok(reader)
     }
