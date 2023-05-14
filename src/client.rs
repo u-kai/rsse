@@ -61,7 +61,25 @@ impl SseClient {
         self.request_builder = self.request_builder.json(body);
         self
     }
-    pub fn read_stream(mut self, data_handler: impl Fn(&str) -> Result<()>) -> Result<()> {
+    pub fn read_stream(mut self, line_handler: impl Fn(&str) -> Result<()>) -> Result<()> {
+        let req = self.request_builder.to_request();
+        let mut tls_stream = rustls::Stream::new(&mut self.client, &mut self.tcp_stream);
+        tls_stream
+            .write_all(req.as_bytes())
+            .map_err(|e| SseClientError::ClientConnectionError(e.to_string()))?;
+        let mut reader = BufReader::new(tls_stream);
+        let mut line = String::new();
+        while reader
+            .read_line(&mut line)
+            .map_err(|e| SseClientError::ReadLineError(e.to_string()))?
+            > 0
+        {
+            line_handler(&line)?;
+            line.clear();
+        }
+        Ok(())
+    }
+    pub fn read_stream_data(mut self, data_handler: impl Fn(&str) -> Result<()>) -> Result<()> {
         let req = self.request_builder.to_request();
         let mut tls_stream = rustls::Stream::new(&mut self.client, &mut self.tcp_stream);
         tls_stream
