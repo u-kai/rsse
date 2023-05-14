@@ -78,7 +78,7 @@ impl SseClient {
         }
         Ok(())
     }
-    pub fn read_stream_data<T>(mut self, data_handler: impl Fn(&str) -> ()) -> Result<()> {
+    pub fn read_stream_data<T>(&mut self, data_handler: impl Fn(&str) -> ()) -> Result<()> {
         let req = self.request_builder.to_request();
         let mut tls_stream = rustls::Stream::new(&mut self.client, &mut self.tcp_stream);
         tls_stream
