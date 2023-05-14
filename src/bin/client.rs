@@ -1,6 +1,6 @@
 use std::io::{stdout, BufRead, Write};
 
-use rsse::client::SseClient;
+use rsse::{client::SseClient, request_builder::RequestBuilder};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct ChatRequest {
@@ -82,24 +82,26 @@ pub struct ChatChoicesDelta {
 }
 
 fn main() {
+    let url = "https://api.openai.com/v1/chat/completions";
+    let mut client = SseClient::default(url).unwrap();
     loop {
         let mut message = String::new();
         print!("{} > ", std::env::var("USER").unwrap_or_default());
         std::io::stdout().flush().unwrap();
         std::io::stdin().read_line(&mut message).unwrap();
-        let mut client = SseClient::default("https://api.openai.com/v1/chat/completions")
-            .unwrap()
+        let request = RequestBuilder::new(url)
             .bearer_auth(std::env::var("OPENAI_API_KEY").unwrap().as_str())
             .post()
-            .json_body(ChatRequest {
+            .json(ChatRequest {
                 stream: true,
                 model: OpenAIModel::Gpt3Dot5Turbo,
                 messages: vec![Message {
                     role: Role::User,
                     content: message,
                 }],
-            });
-        let mut reader = client.stream_reader().unwrap();
+            })
+            .build();
+        let mut reader = client.stream_reader(request).unwrap();
         let mut line = String::new();
         while reader.read_line(&mut line).unwrap() > 0 {
             if line.starts_with("data:") {

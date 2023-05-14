@@ -1,3 +1,3 @@
 pub mod client;
-mod request_builder;
+pub mod request_builder;
 mod url;

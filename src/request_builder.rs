@@ -10,9 +10,9 @@ pub struct RequestBuilder {
     body: String,
 }
 impl RequestBuilder {
-    pub fn new(url: Url) -> Self {
+    pub fn new(url: impl Into<Url>) -> Self {
         Self {
-            url,
+            url: url.into(),
             method: HttpMethod::Get,
             headers: BTreeMap::new(),
             body: String::new(),
@@ -49,7 +49,10 @@ impl RequestBuilder {
             .insert("Authorization".to_string(), format!("Bearer {}", token));
         self
     }
-    pub fn to_request(&self) -> String {
+    pub fn build(self) -> Request {
+        Request(self.to_request())
+    }
+    fn to_request(&self) -> String {
         let mut request = String::new();
         match self.method {
             HttpMethod::Get => request.push_str("GET"),
@@ -67,6 +70,13 @@ impl RequestBuilder {
         request.push_str("\r\n");
         request.push_str(self.body.as_str());
         request
+    }
+}
+#[derive(Debug)]
+pub struct Request(String);
+impl Request {
+    pub fn bytes(&self) -> &[u8] {
+        self.0.as_bytes()
     }
 }
 

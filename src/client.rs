@@ -1,18 +1,17 @@
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{BufReader, Write},
     net::TcpStream,
     sync::Arc,
 };
 
 use rustls::{ClientConfig, ClientConnection, Stream};
 
-use crate::{request_builder::RequestBuilder, url::Url};
+use crate::{request_builder::Request, url::Url};
 
 #[derive(Debug)]
 pub struct SseClient {
     client: ClientConnection,
     tcp_stream: TcpStream,
-    request_builder: RequestBuilder,
 }
 #[derive(Debug)]
 pub enum SseClientError {
@@ -45,69 +44,18 @@ impl SseClient {
         Ok(Self {
             client,
             tcp_stream: socket,
-            request_builder: RequestBuilder::new(url),
         })
-    }
-    pub fn post(mut self) -> Self {
-        self.request_builder = self.request_builder.post();
-        self
-    }
-    pub fn bearer_auth(mut self, token: &str) -> Self {
-        self.request_builder = self.request_builder.bearer_auth(token);
-        self
-    }
-    pub fn json_body<T: serde::Serialize>(mut self, body: T) -> Self {
-        self.request_builder = self.request_builder.json(body);
-        self
     }
     pub fn stream_reader<'a>(
         &'a mut self,
+        request: Request,
     ) -> Result<BufReader<Stream<'a, ClientConnection, TcpStream>>> {
-        let req = self.request_builder.to_request();
+        let req = request.bytes();
         let mut tls_stream = rustls::Stream::new(&mut self.client, &mut self.tcp_stream);
         tls_stream
-            .write_all(req.as_bytes())
+            .write_all(req)
             .map_err(|e| SseClientError::ClientConnectionError(e.to_string()))?;
         let reader = BufReader::new(tls_stream);
         Ok(reader)
-    }
-    pub fn read_stream(mut self, line_handler: impl Fn(&str) -> Result<()>) -> Result<()> {
-        let req = self.request_builder.to_request();
-        let mut tls_stream = rustls::Stream::new(&mut self.client, &mut self.tcp_stream);
-        tls_stream
-            .write_all(req.as_bytes())
-            .map_err(|e| SseClientError::ClientConnectionError(e.to_string()))?;
-        let mut reader = BufReader::new(tls_stream);
-        let mut line = String::new();
-        while reader
-            .read_line(&mut line)
-            .map_err(|e| SseClientError::ReadLineError(e.to_string()))?
-            > 0
-        {
-            line_handler(&line)?;
-            line.clear();
-        }
-        Ok(())
-    }
-    pub fn read_stream_data<T>(&mut self, data_handler: impl Fn(&str) -> ()) -> Result<()> {
-        let req = self.request_builder.to_request();
-        let mut tls_stream = rustls::Stream::new(&mut self.client, &mut self.tcp_stream);
-        tls_stream
-            .write_all(req.as_bytes())
-            .map_err(|e| SseClientError::ClientConnectionError(e.to_string()))?;
-        let mut reader = BufReader::new(tls_stream);
-        let mut line = String::new();
-        while reader
-            .read_line(&mut line)
-            .map_err(|e| SseClientError::ReadLineError(e.to_string()))?
-            > 0
-        {
-            if line.starts_with("data:") {
-                let data = line.trim_start_matches("data:").trim();
-                data_handler(data);
-            }
-            line.clear();
-        }
-        Ok(())
     }
 }
