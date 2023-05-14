@@ -41,6 +41,9 @@ impl RequestBuilder {
         self.headers
             .insert("Content-Type".to_string(), "application/json".to_string());
         self.body = serde_json::to_string(&json).unwrap();
+        self.headers
+            .insert("Content-Length".to_string(), self.body.len().to_string());
+        println!("{}", self.body);
         self
     }
     pub fn bearer_auth(mut self, token: &str) -> Self {
@@ -55,7 +58,7 @@ impl RequestBuilder {
             HttpMethod::Post => request.push_str("POST"),
         }
         request.push_str(" ");
-        request.push_str(self.url.path().as_str());
+        request.push_str(self.url.path());
         request.push_str(" HTTP/1.1\r\n");
         request.push_str("Host: ");
         request.push_str(self.url.host());

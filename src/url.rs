@@ -3,7 +3,7 @@ pub struct Url {
     scheme: Schema,
     host: String,
     port: u16,
-    path: Option<String>,
+    path: String,
 }
 
 impl Url {
@@ -28,11 +28,19 @@ impl Url {
         let Some(host) = host_and_maybe_path.next() else {
             return Err(UrlError::InvalidString(s.to_string()));
         };
+        let mut path = host_and_maybe_path.fold(String::new(), |mut acc, s| {
+            acc.push_str("/");
+            acc.push_str(s);
+            acc
+        });
+        if path.len() == 0 {
+            path.push_str("/");
+        };
         Ok(Self {
             scheme: schema,
             host: host.to_string(),
             port,
-            path: host_and_maybe_path.next().map(|s| s.to_string()),
+            path,
         })
     }
     pub fn to_addr_str(&self) -> String {
@@ -47,7 +55,7 @@ impl Url {
             s.push_str(":");
             s.push_str(&self.port().to_string());
         }
-        s.push_str(self.path().as_str());
+        s.push_str(self.path());
         s
     }
     pub fn scheme(&self) -> &str {
@@ -59,11 +67,8 @@ impl Url {
     pub fn host(&self) -> &str {
         &self.host
     }
-    pub fn path(&self) -> String {
-        format!(
-            "/{}",
-            self.path.as_ref().map(|s| s.as_str()).unwrap_or_default()
-        )
+    pub fn path(&self) -> &str {
+        self.path.as_str()
     }
 }
 
@@ -120,6 +125,15 @@ mod tests {
         assert_eq!(url.path(), "/test");
         assert_eq!(url.port(), 443);
         assert_eq!(url.to_string(), "https://localhost/test");
+        let url = Url::from_str("https://api.openai.com/v1/chat/completions").unwrap();
+        assert_eq!(url.scheme(), "https");
+        assert_eq!(url.host(), "api.openai.com");
+        assert_eq!(url.path(), "/v1/chat/completions");
+        assert_eq!(url.port(), 443);
+        assert_eq!(
+            url.to_string(),
+            "https://api.openai.com/v1/chat/completions"
+        );
     }
     #[test]
     fn url構造体はpathを返すことができる() {
