@@ -20,6 +20,7 @@ pub enum SseClientError {
     ClientConnectionError(String),
     TcpStreamConnectionError(String),
     ReadLineError(String),
+    WriteAllError(String),
 }
 impl Display for SseClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -28,6 +29,7 @@ impl Display for SseClientError {
             Self::ClientConnectionError(e) => write!(f, "ClientConnectionError: {}", e),
             Self::ReadLineError(e) => write!(f, "ReadLineError: {}", e),
             Self::TcpStreamConnectionError(e) => write!(f, "TcpStreamConnectionError: {}", e),
+            Self::WriteAllError(e) => write!(f, "WriteAllError: {}", e),
         }
     }
 }
@@ -66,10 +68,7 @@ impl SseClient {
         let req = request.bytes();
         let mut tls_stream = rustls::Stream::new(&mut self.client, &mut self.tcp_stream);
         tls_stream.write_all(req).map_err(|e| {
-            SseClientError::ClientConnectionError(format!(
-                "error : {:#?}\nrequest : {:#?}",
-                e, request
-            ))
+            SseClientError::WriteAllError(format!("error : {:#?}\nrequest : {:#?}", e, request))
         })?;
         let reader = BufReader::new(tls_stream);
         Ok(reader)
