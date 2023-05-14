@@ -1,4 +1,5 @@
 use std::{
+    fmt::Display,
     io::{BufReader, Write},
     net::TcpStream,
     sync::Arc,
@@ -18,6 +19,15 @@ pub enum SseClientError {
     InvalidUrlError(String),
     ClientConnectionError(String),
     ReadLineError(String),
+}
+impl Display for SseClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SseClientError::InvalidUrlError(e) => write!(f, "InvalidUrlError: {}", e),
+            SseClientError::ClientConnectionError(e) => write!(f, "ClientConnectionError: {}", e),
+            SseClientError::ReadLineError(e) => write!(f, "ReadLineError: {}", e),
+        }
+    }
 }
 
 type Result<T> = std::result::Result<T, SseClientError>;
