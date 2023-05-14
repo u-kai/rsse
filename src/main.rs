@@ -1,12 +1,9 @@
-use reqwest::Client;
-
 use rustls::ClientConfig;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut root_store = rustls::RootCertStore::empty();
     root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
         rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
@@ -24,9 +21,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         rustls::ClientConnection::new(Arc::new(config), "api.openai.com".try_into().unwrap())?;
 
     let mut socket = TcpStream::connect("api.openai.com:443")?;
-    let mut as_socket = tokio::net::TcpStream::connect("api.openai.com:443")
-        .await
-        .unwrap();
     let mut tls_stream = rustls::Stream::new(&mut client, &mut socket);
     let body = r#"{"model":"gpt-3.5-turbo","messages":[{"role":"user","content":"今日は\n"}],"stream":true}"#;
     let req = format!(
