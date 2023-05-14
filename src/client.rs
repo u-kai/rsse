@@ -10,10 +10,9 @@ use crate::{request_builder::RequestBuilder, url::Url};
 
 #[derive(Debug)]
 pub struct SseClient {
-    //hurl: Url,
     client: ClientConnection,
     tcp_stream: TcpStream,
-    pub request_builder: RequestBuilder,
+    request_builder: RequestBuilder,
 }
 #[derive(Debug)]
 pub enum SseClientError {

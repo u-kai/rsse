@@ -38,12 +38,10 @@ impl RequestBuilder {
             })
     }
     pub fn json<T: serde::Serialize>(mut self, json: T) -> Self {
-        self.headers
-            .insert("Content-Type".to_string(), "application/json".to_string());
+        self = self.header("Content-Type", "application/json");
         self.body = serde_json::to_string(&json).unwrap();
-        self.headers
-            .insert("Content-Length".to_string(), self.body.len().to_string());
-        println!("{}", self.body);
+        let len = self.body.len();
+        self = self.header("Content-Length", len.to_string().as_str());
         self
     }
     pub fn bearer_auth(mut self, token: &str) -> Self {
