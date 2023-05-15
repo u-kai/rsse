@@ -1,6 +1,6 @@
 use std::{
     fmt::Display,
-    io::{BufReader, Write},
+    io::{BufRead, BufReader, Write},
     net::TcpStream,
     sync::Arc,
 };
@@ -72,5 +72,101 @@ impl SseClient {
         })?;
         let reader = BufReader::new(tls_stream);
         Ok(reader)
+    }
+    pub fn handle_event<'a>(
+        &'a mut self,
+        request: Request,
+        event_handler: impl Fn(&str) -> std::result::Result<(), Box<dyn std::error::Error>>,
+        error_handler: impl Fn(&str) -> std::result::Result<(), Box<dyn std::error::Error>>,
+        read_line_error_handler: impl Fn(&str) -> std::result::Result<(), Box<dyn std::error::Error>>,
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let reader = self.stream_reader(request)?;
+        StreamEventReader::new(reader).read_line_loop(
+            event_handler,
+            error_handler,
+            read_line_error_handler,
+        )?;
+        Ok(())
+    }
+}
+
+pub struct StreamEventReader<'a> {
+    reader: BufReader<Stream<'a, ClientConnection, TcpStream>>,
+}
+impl<'a> StreamEventReader<'a> {
+    pub fn new(reader: BufReader<Stream<'a, ClientConnection, TcpStream>>) -> Self {
+        Self { reader }
+    }
+    pub fn read_line_loop(
+        &mut self,
+        handler: impl Fn(&str) -> std::result::Result<(), Box<dyn std::error::Error>>,
+        error_handler: impl Fn(&str) -> std::result::Result<(), Box<dyn std::error::Error>>,
+        read_line_error_handler: impl Fn(&str) -> std::result::Result<(), Box<dyn std::error::Error>>,
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let mut event_data = EventData::new();
+        let mut response = String::new();
+        let mut read_len = 1;
+        while read_len > 0 {
+            match self.reader.read_line(&mut response) {
+                Ok(len) => read_len = len,
+                Err(e) => match read_line_error_handler(e.to_string().as_str()) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        return Err(e);
+                    }
+                },
+            }
+            event_data.set_response(response.as_str());
+            match event_data.get_data() {
+                Ok(event) => match handler(event) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        return Err(e);
+                    }
+                },
+                Err(error) => match error_handler(error) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        return Err(e);
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
+}
+
+pub struct EventData {
+    data: String,
+    error: String,
+    error_word: String,
+}
+
+impl EventData {
+    pub fn new() -> Self {
+        Self {
+            data: String::new(),
+            error: String::new(),
+            error_word: String::from("error"),
+        }
+    }
+    pub fn get_data(&self) -> std::result::Result<&str, &str> {
+        if self.data.is_empty() {
+            Err(&self.error)
+        } else {
+            Ok(&self.data)
+        }
+    }
+    pub fn set_response(&mut self, response: &str) {
+        if response.starts_with("data:") {
+            self.error.clear();
+            self.data = response.trim_start_matches("data:").trim().to_string();
+            return;
+        }
+        self.data.clear();
+        if response.contains(&self.error_word) {
+            self.error = response.trim().to_string();
+            return;
+        }
     }
 }
