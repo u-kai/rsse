@@ -151,7 +151,7 @@ impl EventData {
         }
     }
     pub fn get_data(&self) -> std::result::Result<&str, &str> {
-        if self.data.is_empty() {
+        if !self.error.is_empty() {
             Err(&self.error)
         } else {
             Ok(&self.data)
