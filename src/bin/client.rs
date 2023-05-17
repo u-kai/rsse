@@ -1,4 +1,7 @@
-use std::io::{stdout, BufRead, Write};
+use std::{
+    fs::File,
+    io::{stdout, BufRead, Write},
+};
 
 use rsse::{client::SseClient, request_builder::RequestBuilder};
 
@@ -84,6 +87,7 @@ pub struct ChatChoicesDelta {
 fn main() {
     let url = "https://api.openai.com/v1/chat/completions";
     let mut client = SseClient::default(url).unwrap();
+    let mut file = File::create("logs.txt").unwrap();
     loop {
         let mut message = String::new();
         print!("{} > ", std::env::var("USER").unwrap_or_default());
@@ -104,6 +108,7 @@ fn main() {
         let mut reader = client.stream_reader(request).unwrap();
         let mut line = String::new();
         while reader.read_line(&mut line).unwrap() > 0 {
+            file.write_all(line.as_bytes()).unwrap();
             if line.starts_with("data:") {
                 let data = line.trim_start_matches("data:").trim();
                 let chat: serde_json::Result<Chat> = serde_json::from_str(data);
