@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use rustls::{ClientConfig, ClientConnection, Stream};
+use rustls::{Certificate, ClientConfig, ClientConnection, Stream};
 
 use crate::{request_builder::Request, url::Url};
 
