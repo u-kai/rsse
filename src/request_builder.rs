@@ -102,7 +102,7 @@ mod tests {
             .to_request();
         assert_eq!(
             request,
-            "POST /test HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\nContent-Type: application/json\r\n\r\n[1,2,3]"
+            "POST /test HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\nContent-Length: 7\r\nContent-Type: application/json\r\n\r\n[1,2,3]"
         )
     }
     #[test]
