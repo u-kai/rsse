@@ -84,6 +84,9 @@ impl SseResponse {
     pub fn start_line(&self) -> &SseStartLine {
         &self.start_line
     }
+    pub fn body(&self) -> Option<&str> {
+        self.body.as_ref().map(|b| b.other())
+    }
     pub fn add_line(self, line: &str) -> Result<Self> {
         if let Ok(start_line) = SseStartLine::from_line(line) {
             return Ok(Self {
@@ -217,23 +220,40 @@ impl SseHeader {
 
 #[derive(Debug)]
 pub struct SseBody {
-    lines: Vec<String>,
+    events: Vec<String>,
+    other: String,
+    //lines: Vec<String>,
 }
 impl FromLine for SseBody {
     fn from_line(line: &str) -> Result<Self> {
+        let Some(event) = Self::to_event(line) else {
+            return Ok(Self {
+                events:Vec::new(),
+                other: line.trim().to_string(),
+            })
+        };
         Ok(Self {
-            lines: vec![line.to_string()],
+            events: vec![event.to_string()],
+            other: String::new(),
         })
     }
 }
 impl SseBody {
     pub fn add_line(&mut self, line: &str) {
-        self.lines.push(line.to_string());
+        let Some(event) = Self::to_event(line) else {
+            self.other.push_str(line);
+            return;
+        };
+        self.events.push(event.to_string());
+    }
+    pub fn other(&self) -> &str {
+        self.other.as_str()
     }
     pub fn new_event(&self) -> Option<&str> {
-        self.lines
-            .last()
-            .map(|s| s.splitn(2, "data:").skip(1).next().map(|s| s.trim()))?
+        self.events.last().map(String::as_str)
+    }
+    fn to_event(s: &str) -> Option<&str> {
+        s.splitn(2, "data:").skip(1).next().map(|s| s.trim())
     }
 }
 #[derive(Debug)]
@@ -397,6 +417,7 @@ mod tests {
             response.header("Date"),
             Some("Thu, 18 May 2023 10:07:36 GMT")
         );
+        assert_eq!(response.body(), None);
         assert_eq!(response.new_event(), None);
         let start_body = "\r\n\r\n";
         let response = response.add_line(start_body).unwrap();
@@ -407,6 +428,18 @@ mod tests {
             response.header("Date"),
             Some("Thu, 18 May 2023 10:07:36 GMT")
         );
+        assert_eq!(response.body(), Some(""));
+        assert_eq!(response.new_event(), None);
+        let not_event = "start event";
+        let response = response.add_line(not_event).unwrap();
+        assert_eq!(response.http_version(), "HTTP/1.1");
+        assert_eq!(response.status_code(), 200);
+        assert_eq!(response.status_text(), "OK");
+        assert_eq!(
+            response.header("Date"),
+            Some("Thu, 18 May 2023 10:07:36 GMT")
+        );
+        assert_eq!(response.body(), Some(not_event));
         assert_eq!(response.new_event(), None);
     }
     #[test]
