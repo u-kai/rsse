@@ -3,6 +3,7 @@ use std::{collections::HashMap, fmt::Display};
 #[derive(Debug)]
 pub enum SseResponseError {
     InvalidStartLine(String),
+    InvalidHeader(String),
     InvalidStatusCode(u32),
 }
 impl SseResponseError {
@@ -11,6 +12,9 @@ impl SseResponseError {
     }
     pub fn invalid_status_code(code: u32) -> Self {
         Self::InvalidStatusCode(code)
+    }
+    pub fn invalid_header(s: &str) -> Self {
+        Self::InvalidHeader(format!("Invalid header: {}", s))
     }
 }
 impl Display for SseResponseError {
@@ -22,6 +26,7 @@ impl Display for SseResponseError {
             SseResponseError::InvalidStatusCode(code) => {
                 write!(f, "Invalid status code: {}", code)
             }
+            Self::InvalidHeader(s) => write!(f, "Invalid header: {}", s),
         }
     }
 }
@@ -66,6 +71,35 @@ impl SseStartLine {
         self.status_code.is_ok()
     }
 }
+#[derive(Debug)]
+pub struct SseHeader {
+    name: String,
+    value: String,
+}
+impl FromLine for SseHeader {
+    fn from_line(line: &str) -> Result<Self> {
+        let mut split = line.splitn(2, ':');
+        let name = split
+            .next()
+            .ok_or(SseResponseError::invalid_header(line))?
+            .trim()
+            .to_string();
+        let value = split
+            .next()
+            .ok_or(SseResponseError::invalid_header(line))?
+            .trim()
+            .to_string();
+        Ok(Self { name, value })
+    }
+}
+impl SseHeader {
+    pub fn key(&self) -> &str {
+        self.name.as_str()
+    }
+    pub fn value(&self) -> &str {
+        self.value.as_str()
+    }
+}
 
 #[derive(Debug)]
 pub struct StatusText(String);
@@ -78,6 +112,199 @@ impl FromLine for StatusText {
             .map(|s| Self(s.to_string()))
     }
 }
+impl FromLine for StatusCode {
+    fn from_line(line: &str) -> Result<Self> {
+        let split = line
+            .split_whitespace()
+            .skip(1)
+            .next()
+            .ok_or(SseResponseError::invalid_start_line(line))?;
+
+        let num = split
+            .parse::<u32>()
+            .map_err(|_| SseResponseError::invalid_start_line(line))?;
+        Ok(Self::from_num(num)?)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum HttpVersion {
+    Http1_0,
+    Http1_1,
+    Http2_0,
+}
+
+impl FromLine for HttpVersion {
+    fn from_line(line: &str) -> Result<Self> {
+        let version = line
+            .split_whitespace()
+            .nth(0)
+            .ok_or(SseResponseError::invalid_start_line(line))?;
+        match version {
+            "HTTP/1.0" => Ok(Self::Http1_0),
+            "HTTP/1.1" => Ok(Self::Http1_1),
+            "HTTP/2.0" => Ok(Self::Http2_0),
+            _ => Err(SseResponseError::invalid_start_line(line)),
+        }
+    }
+}
+impl HttpVersion {
+    fn to_str(&self) -> &'static str {
+        match self {
+            Self::Http1_0 => "HTTP/1.0",
+            Self::Http1_1 => "HTTP/1.1",
+            Self::Http2_0 => "HTTP/2.0",
+        }
+    }
+}
+#[derive(Debug)]
+pub struct HttpResponse {
+    status_code: u32,
+    headers: HashMap<String, String>,
+    body: Vec<String>,
+    is_next_body: bool,
+    is_next_header: bool,
+    next_line_count: usize,
+    all: String,
+}
+impl HttpResponse {
+    pub fn new() -> Self {
+        Self {
+            all: String::new(),
+            status_code: 0,
+            headers: HashMap::new(),
+            body: Vec::new(),
+            is_next_body: false,
+            is_next_header: false,
+            next_line_count: 0,
+        }
+    }
+    pub fn add_line(&mut self, line: &str) {
+        self.all.push_str(line);
+        if self.is_start_line() && line.starts_with("HTTP/") {
+            self.status_code = line.split(" ").nth(1).unwrap().parse().unwrap();
+            self.is_next_header = true;
+            return;
+        }
+        if self.is_next_header || line == "\r\n" {
+            self.next_line_count += 1;
+            return;
+        }
+        if self.next_line_count == 2 {
+            self.is_next_body = true;
+            self.is_next_header = false;
+            self.next_line_count = 0;
+            return;
+        }
+        if self.is_next_header {
+            //&& line.contains(":") {
+            self.next_line_count = 0;
+            let mut iter = line.split(":");
+            let key = iter.next().unwrap().trim().to_string();
+            let value = iter.next().unwrap().trim().to_string();
+            self.headers.insert(key, value);
+            return;
+        }
+        if self.is_next_body {
+            self.body.push(line.into());
+        }
+    }
+    pub fn status_code(&self) -> u32 {
+        self.status_code
+    }
+    pub fn get_header(&self, key: &str) -> Option<&str> {
+        self.headers.get(key).map(|v| v.as_str())
+    }
+    pub fn body(&self) -> String {
+        self.body.iter().fold(String::new(), |mut acc, cur| {
+            acc.push_str(cur.as_str());
+            acc
+        })
+    }
+    pub fn has_error(&self) -> bool {
+        self.status_code >= 400 && self.status_code < 600
+    }
+    pub fn to_string(&self) -> String {
+        self.all.clone()
+    }
+    fn is_start_line(&self) -> bool {
+        self.status_code == 0 && self.headers.is_empty()
+    }
+    pub fn new_event(&self) -> Option<String> {
+        for line in self.body.iter().rev() {
+            if line.starts_with("data:") {
+                let data = line.replacen("data: ", "", 1);
+                return Some(data);
+            }
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn start_line_test() {
+        let line = "HTTP/1.1 200 OK\r\n";
+        let start_line = SseStartLine::from_line(line).unwrap();
+        assert_eq!(start_line.http_version(), "HTTP/1.1");
+        assert_eq!(start_line.status_code(), 200);
+        assert_eq!(start_line.status_text(), "OK");
+    }
+    #[test]
+    fn start_line_status_test() {
+        let line = "HTTP/1.1 401 Unauthorized\r\n";
+        let start_line = SseStartLine::from_line(line).unwrap();
+        assert!(start_line.is_error());
+        let line = "HTTP/1.1 200 OK\r\n";
+        let start_line = SseStartLine::from_line(line).unwrap();
+        assert!(start_line.is_ok());
+    }
+    #[test]
+    fn sse_header_test() {
+        let line = "Content-Type: text/event-stream\r\n";
+        let header = SseHeader::from_line(line).unwrap();
+        assert_eq!(header.key(), "Content-Type");
+        assert_eq!(header.value(), "text/event-stream");
+    }
+    //#[test]
+    //fn sse用のhttp_responseは随時bodyにデータを追加できる() {
+    //let mut http_response = HttpResponse::new();
+    //http_response.add_line("HTTP/1.1 200 OK\r\n");
+    //http_response.add_line("Content-Type: text/event-stream\r\n");
+    //http_response.add_line("\r\n\r\n");
+    //http_response.add_line("start\r\n");
+    //http_response.add_line("data: 1\r\n");
+    //http_response.add_line("data: 2\r\n");
+    //http_response.add_line(r#"data: {"id":"chatcmpl-7HUPdLSLH82dsYD8nWD0gPqFFO8jU","object":"chat.completion.chunk","created":1684402837,"model":"gpt-3.5-turbo-0301","choices":[{"delta":{"role":"assistant"},"index":0,"finish_reason":null}]}\r\n"#);
+    //assert_eq!(http_response.status_code(), 200);
+    //assert_eq!(
+    //http_response.get_header("Content-Type").unwrap(),
+    //"text/event-stream"
+    //);
+    ////assert_eq!(http_response.body(), "start\ndata: 1\ndata: 2\ndata: 3\n");
+    //let data = r#"{"id":"chatcmpl-7HUPdLSLH82dsYD8nWD0gPqFFO8jU","object":"chat.completion.chunk","created":1684402837,"model":"gpt-3.5-turbo-0301","choices":[{"delta":{"role":"assistant"},"index":0,"finish_reason":null}]}"#;
+    //assert_eq!(http_response.new_event().unwrap(), data);
+    //}
+    //#[test]
+    //fn 連続的な行からhttp_responseを構築可能() {
+    //let mut http_response = HttpResponse::new();
+    //http_response.add_line("HTTP/1.1 200 OK");
+    //http_response.add_line("Content-Type: text/event-stream");
+    //http_response.add_line("");
+    //http_response.add_line("start\n");
+    //http_response.add_line("data: 1\n");
+    //http_response.add_line("data: 2\n");
+    //assert_eq!(http_response.status_code(), 200);
+    //assert_eq!(
+    //http_response.get_header("Content-Type").unwrap(),
+    //"text/event-stream"
+    //);
+    //assert_eq!(http_response.body(), "start\ndata: 1\ndata: 2\n");
+    //}
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum StatusCode {
     Continue,
@@ -291,189 +518,4 @@ impl StatusCode {
             _ => Err(SseResponseError::invalid_status_code(num)),
         }
     }
-}
-impl FromLine for StatusCode {
-    fn from_line(line: &str) -> Result<Self> {
-        let split = line
-            .split_whitespace()
-            .skip(1)
-            .next()
-            .ok_or(SseResponseError::invalid_start_line(line))?;
-
-        let num = split
-            .parse::<u32>()
-            .map_err(|_| SseResponseError::invalid_start_line(line))?;
-        Ok(Self::from_num(num)?)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum HttpVersion {
-    Http1_0,
-    Http1_1,
-    Http2_0,
-}
-
-impl FromLine for HttpVersion {
-    fn from_line(line: &str) -> Result<Self> {
-        let version = line
-            .split_whitespace()
-            .nth(0)
-            .ok_or(SseResponseError::invalid_start_line(line))?;
-        match version {
-            "HTTP/1.0" => Ok(Self::Http1_0),
-            "HTTP/1.1" => Ok(Self::Http1_1),
-            "HTTP/2.0" => Ok(Self::Http2_0),
-            _ => Err(SseResponseError::invalid_start_line(line)),
-        }
-    }
-}
-impl HttpVersion {
-    fn to_str(&self) -> &'static str {
-        match self {
-            Self::Http1_0 => "HTTP/1.0",
-            Self::Http1_1 => "HTTP/1.1",
-            Self::Http2_0 => "HTTP/2.0",
-        }
-    }
-}
-#[derive(Debug)]
-pub struct HttpResponse {
-    status_code: u32,
-    headers: HashMap<String, String>,
-    body: Vec<String>,
-    is_next_body: bool,
-    is_next_header: bool,
-    next_line_count: usize,
-    all: String,
-}
-impl HttpResponse {
-    pub fn new() -> Self {
-        Self {
-            all: String::new(),
-            status_code: 0,
-            headers: HashMap::new(),
-            body: Vec::new(),
-            is_next_body: false,
-            is_next_header: false,
-            next_line_count: 0,
-        }
-    }
-    pub fn add_line(&mut self, line: &str) {
-        self.all.push_str(line);
-        if self.is_start_line() && line.starts_with("HTTP/") {
-            self.status_code = line.split(" ").nth(1).unwrap().parse().unwrap();
-            self.is_next_header = true;
-            return;
-        }
-        if self.is_next_header || line == "\r\n" {
-            self.next_line_count += 1;
-            return;
-        }
-        if self.next_line_count == 2 {
-            self.is_next_body = true;
-            self.is_next_header = false;
-            self.next_line_count = 0;
-            return;
-        }
-        if self.is_next_header {
-            //&& line.contains(":") {
-            self.next_line_count = 0;
-            let mut iter = line.split(":");
-            let key = iter.next().unwrap().trim().to_string();
-            let value = iter.next().unwrap().trim().to_string();
-            self.headers.insert(key, value);
-            return;
-        }
-        if self.is_next_body {
-            self.body.push(line.into());
-        }
-    }
-    pub fn status_code(&self) -> u32 {
-        self.status_code
-    }
-    pub fn get_header(&self, key: &str) -> Option<&str> {
-        self.headers.get(key).map(|v| v.as_str())
-    }
-    pub fn body(&self) -> String {
-        self.body.iter().fold(String::new(), |mut acc, cur| {
-            acc.push_str(cur.as_str());
-            acc
-        })
-    }
-    pub fn has_error(&self) -> bool {
-        self.status_code >= 400 && self.status_code < 600
-    }
-    pub fn to_string(&self) -> String {
-        self.all.clone()
-    }
-    fn is_start_line(&self) -> bool {
-        self.status_code == 0 && self.headers.is_empty()
-    }
-    pub fn new_event(&self) -> Option<String> {
-        for line in self.body.iter().rev() {
-            if line.starts_with("data:") {
-                let data = line.replacen("data: ", "", 1);
-                return Some(data);
-            }
-        }
-        None
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn start_line_test() {
-        let line = "HTTP/1.1 200 OK\r\n";
-        let start_line = SseStartLine::from_line(line).unwrap();
-        assert_eq!(start_line.http_version(), "HTTP/1.1");
-        assert_eq!(start_line.status_code(), 200);
-        assert_eq!(start_line.status_text(), "OK");
-    }
-    #[test]
-    fn start_line_status_test() {
-        let line = "HTTP/1.1 401 Unauthorized\r\n";
-        let start_line = SseStartLine::from_line(line).unwrap();
-        assert!(start_line.is_error());
-        let line = "HTTP/1.1 200 OK\r\n";
-        let start_line = SseStartLine::from_line(line).unwrap();
-        assert!(start_line.is_ok());
-    }
-    //#[test]
-    //fn sse用のhttp_responseは随時bodyにデータを追加できる() {
-    //let mut http_response = HttpResponse::new();
-    //http_response.add_line("HTTP/1.1 200 OK\r\n");
-    //http_response.add_line("Content-Type: text/event-stream\r\n");
-    //http_response.add_line("\r\n\r\n");
-    //http_response.add_line("start\r\n");
-    //http_response.add_line("data: 1\r\n");
-    //http_response.add_line("data: 2\r\n");
-    //http_response.add_line(r#"data: {"id":"chatcmpl-7HUPdLSLH82dsYD8nWD0gPqFFO8jU","object":"chat.completion.chunk","created":1684402837,"model":"gpt-3.5-turbo-0301","choices":[{"delta":{"role":"assistant"},"index":0,"finish_reason":null}]}\r\n"#);
-    //assert_eq!(http_response.status_code(), 200);
-    //assert_eq!(
-    //http_response.get_header("Content-Type").unwrap(),
-    //"text/event-stream"
-    //);
-    ////assert_eq!(http_response.body(), "start\ndata: 1\ndata: 2\ndata: 3\n");
-    //let data = r#"{"id":"chatcmpl-7HUPdLSLH82dsYD8nWD0gPqFFO8jU","object":"chat.completion.chunk","created":1684402837,"model":"gpt-3.5-turbo-0301","choices":[{"delta":{"role":"assistant"},"index":0,"finish_reason":null}]}"#;
-    //assert_eq!(http_response.new_event().unwrap(), data);
-    //}
-    //#[test]
-    //fn 連続的な行からhttp_responseを構築可能() {
-    //let mut http_response = HttpResponse::new();
-    //http_response.add_line("HTTP/1.1 200 OK");
-    //http_response.add_line("Content-Type: text/event-stream");
-    //http_response.add_line("");
-    //http_response.add_line("start\n");
-    //http_response.add_line("data: 1\n");
-    //http_response.add_line("data: 2\n");
-    //assert_eq!(http_response.status_code(), 200);
-    //assert_eq!(
-    //http_response.get_header("Content-Type").unwrap(),
-    //"text/event-stream"
-    //);
-    //assert_eq!(http_response.body(), "start\ndata: 1\ndata: 2\n");
-    //}
 }
