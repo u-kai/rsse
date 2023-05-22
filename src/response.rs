@@ -72,6 +72,21 @@ impl SseStartLine {
     }
 }
 #[derive(Debug)]
+pub struct SseHeaders {
+    headers: HashMap<String, String>,
+}
+impl SseHeaders {
+    pub fn new() -> Self {
+        Self {
+            headers: HashMap::new(),
+        }
+    }
+    pub fn insert(&mut self, header: SseHeader) {
+        self.headers.insert(header.name, header.value);
+    }
+}
+
+#[derive(Debug)]
 pub struct SseHeader {
     name: String,
     value: String,
@@ -101,6 +116,27 @@ impl SseHeader {
     }
 }
 
+#[derive(Debug)]
+pub struct SseBody {
+    lines: Vec<String>,
+}
+impl FromLine for SseBody {
+    fn from_line(line: &str) -> Result<Self> {
+        Ok(Self {
+            lines: vec![line.to_string()],
+        })
+    }
+}
+impl SseBody {
+    pub fn add_line(&mut self, line: &str) {
+        self.lines.push(line.to_string());
+    }
+    pub fn new_event(&self) -> Option<&str> {
+        self.lines
+            .last()
+            .map(|s| s.splitn(2, "data:").skip(1).next().map(|s| s.trim()))?
+    }
+}
 #[derive(Debug)]
 pub struct StatusText(String);
 impl FromLine for StatusText {
@@ -267,6 +303,14 @@ mod tests {
         let header = SseHeader::from_line(line).unwrap();
         assert_eq!(header.key(), "Content-Type");
         assert_eq!(header.value(), "text/event-stream");
+    }
+    #[test]
+    fn sse_data_test() {
+        let line = "1a7\r\n";
+        let mut body = SseBody::from_line(line).unwrap();
+        assert_eq!(body.new_event(), None);
+        body.add_line("data: {\"id\":0,\"name\":\"kai\"}\r\n");
+        assert_eq!(body.new_event(), Some(r#"{"id":0,"name":"kai"}"#));
     }
     //#[test]
     //fn sse用のhttp_responseは随時bodyにデータを追加できる() {
