@@ -2,6 +2,7 @@ use std::{collections::HashMap, fmt::Display};
 
 #[derive(Debug)]
 pub enum SseResponseError {
+    InvalidLine(SseResponse, String),
     InvalidStartLine(String),
     InvalidHeader(String),
     InvalidStatusCode(u32),
@@ -16,6 +17,9 @@ impl SseResponseError {
     pub fn invalid_header(s: &str) -> Self {
         Self::InvalidHeader(format!("Invalid header: {}", s))
     }
+    pub fn invalid_line(response: SseResponse, line: &str) -> Self {
+        Self::InvalidLine(response, line.to_string())
+    }
 }
 impl Display for SseResponseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -27,6 +31,9 @@ impl Display for SseResponseError {
                 write!(f, "Invalid status code: {}", code)
             }
             Self::InvalidHeader(s) => write!(f, "Invalid header: {}", s),
+            Self::InvalidLine(state, line) => {
+                write!(f, "Invalid line: {} in response: {:?}", line, state)
+            }
         }
     }
 }
@@ -38,6 +45,95 @@ pub trait FromLine {
     fn from_line(line: &str) -> Result<Self>
     where
         Self: Sized;
+}
+#[derive(Debug)]
+pub struct SseResponse {
+    start_line: SseStartLine,
+    headers: Option<SseHeaders>,
+    body: Option<SseBody>,
+    is_next_body: bool,
+}
+impl FromLine for SseResponse {
+    fn from_line(line: &str) -> Result<Self> {
+        let start_line = SseStartLine::from_line(line)?;
+        Ok(Self {
+            start_line,
+            headers: None,
+            body: None,
+            is_next_body: false,
+        })
+    }
+}
+impl SseResponse {
+    pub fn http_version(&self) -> &str {
+        self.start_line.http_version()
+    }
+    pub fn status_code(&self) -> u32 {
+        self.start_line.status_code()
+    }
+    pub fn status_text(&self) -> &str {
+        self.start_line.status_text()
+    }
+    pub fn header(&self, key: &str) -> Option<&str> {
+        self.headers.as_ref().map(|h| h.header(key))?
+    }
+    pub fn new_event(&self) -> Option<&str> {
+        self.body.as_ref().map(|b| b.new_event())?
+    }
+
+    pub fn start_line(&self) -> &SseStartLine {
+        &self.start_line
+    }
+    pub fn add_line(self, line: &str) -> Result<Self> {
+        if let Ok(start_line) = SseStartLine::from_line(line) {
+            return Ok(Self {
+                start_line,
+                headers: None,
+                body: None,
+                is_next_body: false,
+            });
+        }
+        if let Ok(header) = SseHeader::from_line(line) {
+            if let Some(mut headers) = self.headers {
+                let header = SseHeader::from_line(line)?;
+                headers.insert(header);
+                return Ok(Self {
+                    start_line: self.start_line,
+                    headers: Some(headers),
+                    body: None,
+                    is_next_body: false,
+                });
+            } else {
+                let mut headers = SseHeaders::new();
+                headers.insert(header);
+                return Ok(Self {
+                    start_line: self.start_line,
+                    headers: Some(headers),
+                    body: None,
+                    is_next_body: false,
+                });
+            }
+        };
+        if line == "\r\n" {
+            return Ok(Self {
+                start_line: self.start_line,
+                headers: self.headers,
+                body: Some(SseBody::from_line(line)?),
+                is_next_body: true,
+            });
+        }
+        if self.is_next_body {
+            let mut body = self.body.unwrap();
+            body.add_line(line);
+            return Ok(Self {
+                start_line: self.start_line,
+                headers: self.headers,
+                body: Some(body),
+                is_next_body: true,
+            });
+        }
+        Err(SseResponseError::invalid_line(self, line))
+    }
 }
 #[derive(Debug)]
 pub struct SseStartLine {
@@ -83,6 +179,9 @@ impl SseHeaders {
     }
     pub fn insert(&mut self, header: SseHeader) {
         self.headers.insert(header.name, header.value);
+    }
+    pub fn header(&self, key: &str) -> Option<&str> {
+        self.headers.get(key).map(|s| s.as_str())
     }
 }
 
@@ -280,6 +379,26 @@ impl HttpResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn sse_response_test() {
+        let start_line = "HTTP/1.1 200 OK\r\n";
+        let response = SseResponse::from_line(start_line).unwrap();
+        assert_eq!(response.http_version(), "HTTP/1.1");
+        assert_eq!(response.status_code(), 200);
+        assert_eq!(response.status_text(), "OK");
+        assert_eq!(response.header("Date"), None);
+        assert_eq!(response.new_event(), None);
+        let header_line = "Date: Thu, 18 May 2023 10:07:36 GMT";
+        let response = response.add_line(header_line).unwrap();
+        assert_eq!(response.http_version(), "HTTP/1.1");
+        assert_eq!(response.status_code(), 200);
+        assert_eq!(response.status_text(), "OK");
+        assert_eq!(
+            response.header("Date"),
+            Some("Thu, 18 May 2023 10:07:36 GMT")
+        );
+        assert_eq!(response.new_event(), None);
+    }
     #[test]
     fn start_line_test() {
         let line = "HTTP/1.1 200 OK\r\n";
