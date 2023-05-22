@@ -454,6 +454,25 @@ mod tests {
         );
         assert_eq!(response.body(), Some(not_event));
         assert_eq!(response.new_event(), Some("event1"));
+        let event = "data: event2\r\n";
+        let response = response.add_line(event).unwrap();
+        assert_eq!(response.http_version(), "HTTP/1.1");
+        assert_eq!(response.status_code(), 200);
+        assert_eq!(response.status_text(), "OK");
+        assert_eq!(
+            response.header("Date"),
+            Some("Thu, 18 May 2023 10:07:36 GMT")
+        );
+        assert_eq!(response.body(), Some(not_event));
+        assert_eq!(response.new_event(), Some("event2"));
+        let start_line = "HTTP/1.1 200 OK\r\n";
+        let response = response.add_line(start_line).unwrap();
+        assert_eq!(response.http_version(), "HTTP/1.1");
+        assert_eq!(response.status_code(), 200);
+        assert_eq!(response.status_text(), "OK");
+        assert_eq!(response.header("Date"), None);
+        assert_eq!(response.body(), None);
+        assert_eq!(response.new_event(), None);
     }
     #[test]
     fn start_line_test() {
