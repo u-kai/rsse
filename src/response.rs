@@ -47,6 +47,44 @@ pub trait FromLine {
         Self: Sized;
 }
 #[derive(Debug)]
+pub struct SseResponseStore {
+    response: Option<SseResponse>,
+}
+
+impl SseResponseStore {
+    pub fn new() -> Self {
+        Self { response: None }
+    }
+    pub fn evaluate_lines(&mut self, lines: &str) -> Result<&SseResponse> {
+        for line in lines.lines() {
+            self.evaluate(line)?;
+        }
+        Ok(self.response.as_ref().unwrap())
+    }
+    pub fn evaluate(&mut self, line: &str) -> Result<&SseResponse> {
+        let Some(response) = self.response.take() else {
+            let response = SseResponse::from_line(line)?;
+            self.response = Some(response);
+            return Ok(self.response.as_ref().unwrap());
+        };
+        let response = response.add_line(line)?;
+        self.response = Some(response);
+        Ok(self.response.as_ref().unwrap())
+    }
+    pub fn add_response(mut self, line: &str) -> Result<Self> {
+        let Some(response) = self.response else {
+            self.response = Some(SseResponse::from_line(line)?);
+            return Ok(self);
+        };
+        self.response = Some(response.add_line(line)?);
+        Ok(self)
+    }
+    pub fn response(&self) -> Option<&SseResponse> {
+        self.response.as_ref()
+    }
+}
+
+#[derive(Debug)]
 pub struct SseResponse {
     start_line: SseStartLine,
     headers: Option<SseHeaders>,
@@ -80,9 +118,11 @@ impl SseResponse {
     pub fn new_event(&self) -> Option<&str> {
         self.body.as_ref().map(|b| b.new_event())?
     }
-
-    pub fn start_line(&self) -> &SseStartLine {
-        &self.start_line
+    pub fn is_ok(&self) -> bool {
+        self.start_line.is_ok()
+    }
+    pub fn is_error(&self) -> bool {
+        self.start_line.is_error()
     }
     pub fn body(&self) -> Option<&str> {
         self.body.as_ref().map(|b| b.other())
@@ -129,7 +169,7 @@ impl SseResponse {
                 });
             }
         };
-        if line == "\r\n\r\n" {
+        if line == "\r\n\r\n" || line == "\r\n" || line == "" {
             return Ok(Self {
                 start_line: self.start_line,
                 headers: self.headers,
@@ -224,17 +264,19 @@ impl SseHeader {
 pub struct SseBody {
     events: Vec<String>,
     other: String,
-    //lines: Vec<String>,
+    has_pushed: bool, //lines: Vec<String>,
 }
 impl FromLine for SseBody {
     fn from_line(line: &str) -> Result<Self> {
         let Some(event) = Self::to_event(line) else {
             return Ok(Self {
+                has_pushed:false,
                 events:Vec::new(),
                 other: line.trim().to_string(),
             })
         };
         Ok(Self {
+            has_pushed: true,
             events: vec![event.to_string()],
             other: String::new(),
         })
@@ -243,16 +285,22 @@ impl FromLine for SseBody {
 impl SseBody {
     pub fn add_line(&mut self, line: &str) {
         let Some(event) = Self::to_event(line) else {
+            self.has_pushed = false;
             self.other.push_str(line);
             return;
         };
+        self.has_pushed = true;
         self.events.push(event.to_string());
     }
     pub fn other(&self) -> &str {
         self.other.as_str()
     }
     pub fn new_event(&self) -> Option<&str> {
-        self.events.last().map(String::as_str)
+        if self.has_pushed {
+            self.events.last().map(String::as_str)
+        } else {
+            None
+        }
     }
     fn to_event(s: &str) -> Option<&str> {
         s.splitn(2, "data:").skip(1).next().map(|s| s.trim())
@@ -506,41 +554,6 @@ mod tests {
         body.add_line("data: {\"id\":0,\"name\":\"kai\"}\r\n");
         assert_eq!(body.new_event(), Some(r#"{"id":0,"name":"kai"}"#));
     }
-    //#[test]
-    //fn sse用のhttp_responseは随時bodyにデータを追加できる() {
-    //let mut http_response = HttpResponse::new();
-    //http_response.add_line("HTTP/1.1 200 OK\r\n");
-    //http_response.add_line("Content-Type: text/event-stream\r\n");
-    //http_response.add_line("\r\n\r\n");
-    //http_response.add_line("start\r\n");
-    //http_response.add_line("data: 1\r\n");
-    //http_response.add_line("data: 2\r\n");
-    //http_response.add_line(r#"data: {"id":"chatcmpl-7HUPdLSLH82dsYD8nWD0gPqFFO8jU","object":"chat.completion.chunk","created":1684402837,"model":"gpt-3.5-turbo-0301","choices":[{"delta":{"role":"assistant"},"index":0,"finish_reason":null}]}\r\n"#);
-    //assert_eq!(http_response.status_code(), 200);
-    //assert_eq!(
-    //http_response.get_header("Content-Type").unwrap(),
-    //"text/event-stream"
-    //);
-    ////assert_eq!(http_response.body(), "start\ndata: 1\ndata: 2\ndata: 3\n");
-    //let data = r#"{"id":"chatcmpl-7HUPdLSLH82dsYD8nWD0gPqFFO8jU","object":"chat.completion.chunk","created":1684402837,"model":"gpt-3.5-turbo-0301","choices":[{"delta":{"role":"assistant"},"index":0,"finish_reason":null}]}"#;
-    //assert_eq!(http_response.new_event().unwrap(), data);
-    //}
-    //#[test]
-    //fn 連続的な行からhttp_responseを構築可能() {
-    //let mut http_response = HttpResponse::new();
-    //http_response.add_line("HTTP/1.1 200 OK");
-    //http_response.add_line("Content-Type: text/event-stream");
-    //http_response.add_line("");
-    //http_response.add_line("start\n");
-    //http_response.add_line("data: 1\n");
-    //http_response.add_line("data: 2\n");
-    //assert_eq!(http_response.status_code(), 200);
-    //assert_eq!(
-    //http_response.get_header("Content-Type").unwrap(),
-    //"text/event-stream"
-    //);
-    //assert_eq!(http_response.body(), "start\ndata: 1\ndata: 2\n");
-    //}
 }
 
 #[derive(Debug, Clone, Copy)]
