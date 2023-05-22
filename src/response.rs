@@ -114,7 +114,7 @@ impl SseResponse {
                 });
             }
         };
-        if line == "\r\n" {
+        if line == "\r\n\r\n" {
             return Ok(Self {
                 start_line: self.start_line,
                 headers: self.headers,
@@ -390,6 +390,16 @@ mod tests {
         assert_eq!(response.new_event(), None);
         let header_line = "Date: Thu, 18 May 2023 10:07:36 GMT";
         let response = response.add_line(header_line).unwrap();
+        assert_eq!(response.http_version(), "HTTP/1.1");
+        assert_eq!(response.status_code(), 200);
+        assert_eq!(response.status_text(), "OK");
+        assert_eq!(
+            response.header("Date"),
+            Some("Thu, 18 May 2023 10:07:36 GMT")
+        );
+        assert_eq!(response.new_event(), None);
+        let start_body = "\r\n\r\n";
+        let response = response.add_line(start_body).unwrap();
         assert_eq!(response.http_version(), "HTTP/1.1");
         assert_eq!(response.status_code(), 200);
         assert_eq!(response.status_text(), "OK");
