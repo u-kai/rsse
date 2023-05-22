@@ -59,6 +59,12 @@ impl SseStartLine {
     pub fn http_version(&self) -> &str {
         self.http_version.to_str()
     }
+    pub fn is_error(&self) -> bool {
+        self.status_code.is_error()
+    }
+    pub fn is_ok(&self) -> bool {
+        self.status_code.is_ok()
+    }
 }
 
 #[derive(Debug)]
@@ -210,6 +216,12 @@ impl Into<u32> for StatusCode {
 impl StatusCode {
     pub fn num(&self) -> u32 {
         self.clone().into()
+    }
+    pub fn is_ok(&self) -> bool {
+        self.num() < 400
+    }
+    pub fn is_error(&self) -> bool {
+        self.num() >= 400
     }
     fn from_num(num: u32) -> Result<Self> {
         match num {
@@ -419,6 +431,15 @@ mod tests {
         assert_eq!(start_line.http_version(), "HTTP/1.1");
         assert_eq!(start_line.status_code(), 200);
         assert_eq!(start_line.status_text(), "OK");
+    }
+    #[test]
+    fn start_line_status_test() {
+        let line = "HTTP/1.1 401 Unauthorized\r\n";
+        let start_line = SseStartLine::from_line(line).unwrap();
+        assert!(start_line.is_error());
+        let line = "HTTP/1.1 200 OK\r\n";
+        let start_line = SseStartLine::from_line(line).unwrap();
+        assert!(start_line.is_ok());
     }
     //#[test]
     //fn sse用のhttp_responseは随時bodyにデータを追加できる() {
