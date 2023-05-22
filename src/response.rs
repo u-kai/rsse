@@ -96,6 +96,18 @@ impl SseResponse {
                 is_next_body: false,
             });
         }
+        // It's mistakenly recognized ad "header"
+        // so it should be evaluated before the header
+        if self.is_next_body {
+            let mut body = self.body.unwrap();
+            body.add_line(line);
+            return Ok(Self {
+                start_line: self.start_line,
+                headers: self.headers,
+                body: Some(body),
+                is_next_body: true,
+            });
+        }
         if let Ok(header) = SseHeader::from_line(line) {
             if let Some(mut headers) = self.headers {
                 let header = SseHeader::from_line(line)?;
@@ -122,16 +134,6 @@ impl SseResponse {
                 start_line: self.start_line,
                 headers: self.headers,
                 body: Some(SseBody::from_line(line)?),
-                is_next_body: true,
-            });
-        }
-        if self.is_next_body {
-            let mut body = self.body.unwrap();
-            body.add_line(line);
-            return Ok(Self {
-                start_line: self.start_line,
-                headers: self.headers,
-                body: Some(body),
                 is_next_body: true,
             });
         }
@@ -441,6 +443,17 @@ mod tests {
         );
         assert_eq!(response.body(), Some(not_event));
         assert_eq!(response.new_event(), None);
+        let event = "data: event1\r\n";
+        let response = response.add_line(event).unwrap();
+        assert_eq!(response.http_version(), "HTTP/1.1");
+        assert_eq!(response.status_code(), 200);
+        assert_eq!(response.status_text(), "OK");
+        assert_eq!(
+            response.header("Date"),
+            Some("Thu, 18 May 2023 10:07:36 GMT")
+        );
+        assert_eq!(response.body(), Some(not_event));
+        assert_eq!(response.new_event(), Some("event1"));
     }
     #[test]
     fn start_line_test() {
