@@ -86,50 +86,76 @@ pub struct ChatChoicesDelta {
 
 fn main() {
     let url = "https://api.openai.com/v1/chat/completions";
-    let mut client = SseClient::default(url).unwrap();
     let mut file = File::create("logs.txt").unwrap();
+    let mut client = SseClient::default(url).unwrap();
     loop {
-        let mut message = String::new();
-        print!("{} > ", std::env::var("USER").unwrap_or_default());
-        std::io::stdout().flush().unwrap();
-        std::io::stdin().read_line(&mut message).unwrap();
-        let request = RequestBuilder::new(url)
-            .bearer_auth(std::env::var("OPENAI_API_KEY").unwrap().as_str())
-            .post()
-            .json(ChatRequest {
-                stream: true,
-                model: OpenAIModel::Gpt3Dot5Turbo,
-                messages: vec![Message {
-                    role: Role::User,
-                    content: message,
-                }],
-            })
-            .build();
-        let mut reader = client.stream_reader(request).unwrap();
-        let mut line = String::new();
-        while reader.read_line(&mut line).unwrap() > 0 {
-            file.write_all(line.as_bytes()).unwrap();
-            if line.starts_with("data:") {
-                let data = line.trim_start_matches("data:").trim();
-                let chat: serde_json::Result<Chat> = serde_json::from_str(data);
-                match chat {
-                    Ok(chat) => {
-                        if let Some(choice) = chat.choices.first() {
-                            if let Some(content) = &choice.delta.content {
-                                print!("{}", content);
-                                stdout().flush().unwrap();
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        if data == "[DONE]" {
-                            break;
-                        }
-                        println!("{:?}", e);
-                    }
-                }
-            }
-            line.clear();
-        }
+        //        let mut message = String::new();
+        //print!("{} > ", std::env::var("USER").unwrap_or_default());
+        //std::io::stdout().flush().unwrap();
+        //std::io::stdin().read_line(&mut message).unwrap();
+        //let request = RequestBuilder::new(url)
+        //.bearer_auth(std::env::var("OPENAI_API_KEY").unwrap().as_str())
+        //.post()
+        //.json(ChatRequest {
+        //stream: true,
+        //model: OpenAIModel::Gpt3Dot5Turbo,
+        //messages: vec![Message {
+        //role: Role::User,
+        //content: message,
+        //}],
+        //})
+        //.build();
+        //let event = client.stream_event(request);
+        //match event {
+        //Ok((recv, handle)) => {
+        //for data in recv {
+        //println!("{}", data)
+        //}
+        //handle.join().unwrap();
+        //}
+        //Err(e) => {
+        //println!("{:?}", e);
+        //}
+        //}
+        //if let Ok((recv, handle)) = client.stream_event(request) {
+        //for data in recv {
+        //println!("{}", data)
+        //}
+        //handle.join().unwrap();
+        //};
+
+        ////let mut reader = client.stream_reader(request).unwrap();
+        ////let mut line = String::new();
+        ////let mut response = HttpResponse::new();
+        ////while reader.read_line(&mut line).unwrap() > 0 {
+        ////response.add_line(line.as_str());
+        ////let Some(event) = response.new_event() else {
+        ////file.write_all(line.as_bytes()).unwrap();
+        ////continue;
+        ////};
+        ////let chat = serde_json::from_str::<Chat>(event.as_str());
+        //////if line.starts_with("data:") {
+        //////let data = line.trim_start_matches("data:").trim();
+        //////let chat: serde_json::Result<Chat> = serde_json::from_str(data);
+
+        //////println!("{:#?}", response);
+        ////match chat {
+        ////Ok(chat) => {
+        ////if let Some(choice) = chat.choices.first() {
+        ////if let Some(content) = &choice.delta.content {
+        ////print!("{}", content);
+        ////stdout().flush().unwrap();
+        ////}
+        ////}
+        ////}
+        ////Err(e) => {
+        ////if event == "[DONE]" {
+        ////break;
+        ////}
+        ////println!("{:?}", e);
+        ////}
+        ////}
+        ////line.clear();
+        ////}
     }
 }

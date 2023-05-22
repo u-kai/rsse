@@ -1,11 +1,17 @@
 use std::{
+    borrow::BorrowMut,
+    cell::RefCell,
     fmt::Display,
     io::{BufRead, BufReader, Write},
     net::TcpStream,
-    sync::Arc,
+    sync::{
+        mpsc::{self, Receiver},
+        Arc,
+    },
+    thread::{self, JoinHandle},
 };
 
-use rustls::{Certificate, ClientConfig, ClientConnection, Stream};
+use rustls::{ClientConfig, ClientConnection, Stream};
 
 use crate::{request_builder::Request, url::Url};
 
@@ -73,6 +79,36 @@ impl SseClient {
         let reader = BufReader::new(tls_stream);
         Ok(reader)
     }
+
+    //pub fn stream_event(
+    //&'static mut self,
+    //request: Request,
+    //) -> Result<(Receiver<String>, JoinHandle<Result<()>>)> {
+    //let mut reader = self.stream_reader(request)?;
+    //let mut line = String::new();
+    //let mut len = 1;
+    //let mut response = HttpResponse::new();
+    //let (sender, receiver) = mpsc::channel();
+    //let handle = thread::spawn(move || {
+    //while len > 0 {
+    //match reader.read_line(&mut line) {
+    //Ok(l) => len = l,
+    //Err(e) => return Err(SseClientError::ReadLineError(e.to_string())),
+    //}
+    //response.add_line(line.as_str());
+    //if let Some(event) = response.new_event() {
+    //sender.send(event.to_string()).unwrap();
+    //}
+    //line.clear();
+    //}
+    //if response.has_error() {
+    //return Err(SseClientError::ReadLineError(response.to_string()));
+    //}
+    //Ok(())
+    //});
+    //Ok((receiver, handle))
+    //}
+
     pub fn handle_event<'a>(
         &'a mut self,
         request: Request,
