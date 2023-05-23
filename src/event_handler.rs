@@ -1,4 +1,11 @@
-use std::{fmt::Display, io::BufRead};
+use std::{
+    cell::RefCell,
+    fmt::Display,
+    io::{BufRead, BufReader},
+    net::TcpStream,
+};
+
+use rustls::{ClientConnection, Stream};
 
 use crate::{
     request_builder::Request,
@@ -33,7 +40,7 @@ where
     Event: EventHandler,
     Er: ErrorHandler,
 {
-    subscriber: SseSubscriber,
+    subscriber: RefCell<SseSubscriber>,
     event_handler: Event,
     error_handler: Er,
 }
@@ -52,12 +59,12 @@ where
 {
     pub fn without_error_handlers(url: &str, event_handler: Event) -> Result<Self> {
         Ok(Self {
-            subscriber: SseSubscriber::default(url).map_err(|e| {
+            subscriber: RefCell::new(SseSubscriber::default(url).map_err(|e| {
                 SseHandlerError::SubscriberConstructionError {
                     message: e.to_string(),
                     url: url.to_string(),
                 }
-            })?,
+            })?),
             event_handler,
             error_handler: NonCaughtError {},
         })
@@ -70,63 +77,62 @@ where
 {
     pub fn new(url: &str, event_handler: Event, error_handler: Er) -> Result<Self> {
         Ok(Self {
-            subscriber: SseSubscriber::default(url).map_err(|e| {
+            subscriber: RefCell::new(SseSubscriber::default(url).map_err(|e| {
                 SseHandlerError::SubscriberConstructionError {
                     message: e.to_string(),
                     url: url.to_string(),
                 }
-            })?,
+            })?),
             event_handler,
             error_handler,
         })
     }
-    pub fn handle_subscribe_event(&mut self, request: Request) -> Result<()> {
-        match self.subscriber.subscribe_stream(&request) {
-            Ok(mut reader) => {
-                let mut response_store = SseResponseStore::new();
-                let mut read_len = 1;
-                let mut line = String::new();
-                while read_len > 0 {
-                    match reader.read_line(&mut line) {
-                        Ok(len) => read_len = len,
-                        Err(e) => {
-                            return self.catch_io_error(line.as_str(), &request, e);
-                        }
+    pub fn handle_subscribe_event(&self, request: Request) -> Result<()> {
+        match self.subscriber.borrow_mut().subscribe_stream(&request) {
+            Ok(reader) => self.handle(reader, request),
+            Err(e) => self.catch_request_error(&request, e),
+        }
+    }
+    fn handle(
+        &self,
+        mut reader: BufReader<Stream<ClientConnection, TcpStream>>,
+        request: Request,
+    ) -> Result<()> {
+        let mut response_store = SseResponseStore::new();
+        let mut read_len = 1;
+        let mut line = String::new();
+        while read_len > 0 {
+            match reader.read_line(&mut line) {
+                Ok(len) => read_len = len,
+                Err(e) => {
+                    return self.catch_io_error(line.as_str(), &request, e);
+                }
+            }
+            match response_store.evaluate_lines(line.as_str()) {
+                Ok(response) => {
+                    if response.is_error() && read_len <= 5 {
+                        return self.catch_http_response_error(response, &request, line.as_str());
                     }
-                    match response_store.evaluate_lines(line.as_str()) {
-                        Ok(response) => {
-                            if response.is_error() && read_len <= 5 {
-                                return self.catch_http_response_error(
-                                    response,
-                                    &request,
-                                    line.as_str(),
-                                );
-                            }
-                            let Some(event) = response.new_event() else {
+                    let Some(event) = response.new_event() else {
                                 line.clear();
                                 continue;
                             };
-                            if self
-                                .event_handler
-                                .handle(event)
-                                .map_err(|e| SseHandlerError::SubscribeUserError {
-                                    message: e.to_string(),
-                                })?
-                                .0
-                            {
-                                return Ok(());
-                            };
-                        }
-                        Err(e) => {
-                            return self.catch_invalid_response_line_error(line.as_str(), e);
-                        }
-                    }
+                    if self
+                        .event_handler
+                        .handle(event)
+                        .map_err(|e| SseHandlerError::SubscribeUserError {
+                            message: e.to_string(),
+                        })?
+                        .0
+                    {
+                        return Ok(());
+                    };
                 }
-                line.clear();
+                Err(e) => {
+                    return self.catch_invalid_response_line_error(line.as_str(), e);
+                }
             }
-            Err(e) => {
-                return self.catch_request_error(&request, e);
-            }
+            line.clear();
         }
         Ok(())
     }
