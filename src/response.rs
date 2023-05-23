@@ -84,7 +84,7 @@ impl SseResponseStore {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SseResponse {
     start_line: SseStartLine,
     headers: Option<SseHeaders>,
@@ -180,7 +180,7 @@ impl SseResponse {
         Err(SseResponseError::invalid_line(self, line))
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SseStartLine {
     status_code: StatusCode,
     status_text: StatusText,
@@ -212,7 +212,7 @@ impl SseStartLine {
         self.status_code.is_ok()
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SseHeaders {
     headers: HashMap<String, String>,
 }
@@ -230,7 +230,7 @@ impl SseHeaders {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SseHeader {
     name: String,
     value: String,
@@ -260,7 +260,7 @@ impl SseHeader {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SseBody {
     events: Vec<String>,
     other: String,
@@ -306,7 +306,7 @@ impl SseBody {
         s.splitn(2, "data:").skip(1).next().map(|s| s.trim())
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StatusText(String);
 impl FromLine for StatusText {
     fn from_line(line: &str) -> Result<Self> {
@@ -332,7 +332,7 @@ impl FromLine for StatusCode {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 enum HttpVersion {
     Http1_0,
     Http1_1,
@@ -362,7 +362,7 @@ impl HttpVersion {
         }
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HttpResponse {
     status_code: u32,
     headers: HashMap<String, String>,

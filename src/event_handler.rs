@@ -2,7 +2,7 @@ use std::{fmt::Display, io::BufRead};
 
 use crate::{
     request_builder::Request,
-    response::SseResponseStore,
+    response::{SseResponse, SseResponseError, SseResponseStore},
     subscriber::{SseSubscriber, SseSubscriberError},
 };
 
@@ -113,23 +113,35 @@ where
                             return self.catch_io_error(&request, e);
                         }
                     }
-                    let Ok(response) = response_store.evaluate_lines(line.as_str()) else {
-                        return self.catch_response_error(&request, line.as_str())
-                    };
-                    let Some(event) = response.new_event() else {
-                        continue;
-                    };
-                    if self
-                        .event_handler
-                        .handle(event)
-                        .map_err(|e| SseHandlerError::SubscribeRequestUserError {
-                            message: e.to_string(),
-                            request: request.clone(),
-                        })?
-                        .0
-                    {
-                        return Ok(());
-                    };
+                    match response_store.evaluate_lines(line.as_str()) {
+                        Ok(response) => {
+                            if response.is_error() || read_len < 5 {
+                                return self.catch_response_error(
+                                    &response,
+                                    &request,
+                                    line.as_str(),
+                                );
+                            }
+                            let Some(event) = response.new_event() else {
+                                line.clear();
+                                continue;
+                            };
+                            if self
+                                .event_handler
+                                .handle(event)
+                                .map_err(|e| SseHandlerError::SubscribeRequestUserError {
+                                    message: e.to_string(),
+                                    request: request.clone(),
+                                })?
+                                .0
+                            {
+                                return Ok(());
+                            };
+                        }
+                        Err(e) => {
+                            return self.catch_invalid_response_line_error(line.as_str(), e);
+                        }
+                    }
                 }
                 line.clear();
             }
@@ -139,7 +151,31 @@ where
         }
         Ok(())
     }
-    fn catch_response_error(&self, request: &Request, line: &str) -> Result<()> {
+    fn catch_invalid_response_line_error(&self, line: &str, e: SseResponseError) -> Result<()> {
+        match self.response_error_handler {
+            Some(ref handler) => {
+                handler
+                    .catch(line)
+                    .map_err(|e| SseHandlerError::InvalidResponseLineError {
+                        message: e.to_string(),
+                        line: line.to_string(),
+                    })?;
+                Ok(())
+            }
+            None => {
+                return Err(SseHandlerError::InvalidResponseLineError {
+                    message: e.to_string(),
+                    line: line.to_string(),
+                });
+            }
+        }
+    }
+    fn catch_response_error(
+        &self,
+        response: &SseResponse,
+        request: &Request,
+        line: &str,
+    ) -> Result<()> {
         match self.response_error_handler {
             Some(ref handler) => {
                 handler
@@ -147,6 +183,7 @@ where
                     .map_err(|e| SseHandlerError::SubscribeResponseUserError {
                         message: e.to_string(),
                         request: request.clone(),
+                        response: response.clone(),
                     })?;
                 Ok(())
             }
@@ -162,7 +199,7 @@ where
         match self.response_error_handler {
             Some(ref handler) => {
                 handler.catch(e.to_string().as_str()).map_err(|e| {
-                    SseHandlerError::SubscribeResponseUserError {
+                    SseHandlerError::ReadLineError {
                         message: e.to_string(),
                         request: request.clone(),
                     }
@@ -206,13 +243,41 @@ where
 
 #[derive(Debug)]
 pub enum SseHandlerError {
-    SubscriberConstructionError { message: String, url: String },
-    SubscribeRequestError { message: String, request: Request },
-    SubscribeResponseError { message: String, request: Request },
-    SubscribeRequestUserError { message: String, request: Request },
-    SubscribeResponseUserError { message: String, request: Request },
-    NonCaughtRequestError { request: Request },
-    NonCaughtResponseError { message: String },
+    InvalidResponseLineError {
+        message: String,
+        line: String,
+    },
+    ReadLineError {
+        message: String,
+        request: Request,
+    },
+    SubscriberConstructionError {
+        message: String,
+        url: String,
+    },
+    SubscribeRequestError {
+        message: String,
+        request: Request,
+    },
+    SubscribeResponseError {
+        message: String,
+        request: Request,
+    },
+    SubscribeRequestUserError {
+        message: String,
+        request: Request,
+    },
+    SubscribeResponseUserError {
+        message: String,
+        response: SseResponse,
+        request: Request,
+    },
+    NonCaughtRequestError {
+        request: Request,
+    },
+    NonCaughtResponseError {
+        message: String,
+    },
 }
 impl Display for SseHandlerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -245,11 +310,15 @@ impl Display for SseHandlerError {
                     message, request
                 )
             }
-            Self::SubscribeResponseUserError { message, request } => {
+            Self::SubscribeResponseUserError {
+                message,
+                response,
+                request,
+            } => {
                 write!(
                     f,
-                    "SseHandlerError::SubscribeResponseUserError{{message:{},request:{:?}}}",
-                    message, request
+                    "SseHandlerError::SubscribeResponseUserError{{message:{},response:{:?},request:{:?}}}",
+                    message, response, request
                 )
             }
             Self::NonCaughtRequestError { request } => {
@@ -264,6 +333,20 @@ impl Display for SseHandlerError {
                     f,
                     "SseHandlerError::NonCaughtResponseError{{message:{}}}",
                     message
+                )
+            }
+            Self::ReadLineError { message, request } => {
+                write!(
+                    f,
+                    "SseHandlerError::ReadLineError{{message:{},request:{:?}}}",
+                    message, request
+                )
+            }
+            Self::InvalidResponseLineError { message, line } => {
+                write!(
+                    f,
+                    "SseHandlerError::InvalidResponseLineError{{message:{},line:{:?}}}",
+                    message, line
                 )
             }
         }
