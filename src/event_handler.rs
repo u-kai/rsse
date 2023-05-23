@@ -24,46 +24,29 @@ pub trait EventHandler {
     type Err: std::error::Error;
     fn handle(&self, event: &str) -> std::result::Result<SseFinished, Self::Err>;
 }
-pub trait RequestErrorHandler {
+pub trait ErrorHandler {
     type Err: std::error::Error;
-    fn catch(&self, bad_request: &Request) -> std::result::Result<(), Self::Err>;
+    fn catch(&self, error: SseHandlerError) -> std::result::Result<(), Self::Err>;
 }
-pub trait ResponseErrorHandler {
-    type Err: std::error::Error;
-    fn catch(&self, error: &str) -> std::result::Result<(), Self::Err>;
-}
-pub struct SseHandler<Event, ReqErr, ResErr>
+pub struct SseHandler<Event, Er>
 where
     Event: EventHandler,
-    ReqErr: RequestErrorHandler,
-    ResErr: ResponseErrorHandler,
+    Er: ErrorHandler,
 {
     subscriber: SseSubscriber,
     event_handler: Event,
-    request_error_handler: Option<ReqErr>,
-    response_error_handler: Option<ResErr>,
+    error_handler: Er,
 }
-pub struct NonReqErr {}
-impl RequestErrorHandler for NonReqErr {
+pub struct NonCaughtError {}
+impl ErrorHandler for NonCaughtError {
     type Err = SseHandlerError;
-    fn catch(&self, bad_request: &Request) -> std::result::Result<(), Self::Err> {
-        Err(SseHandlerError::NonCaughtRequestError {
-            request: bad_request.clone(),
-        })
-    }
-}
-pub struct NonResErr {}
-impl ResponseErrorHandler for NonResErr {
-    type Err = SseHandlerError;
-    fn catch(&self, error: &str) -> std::result::Result<(), Self::Err> {
-        Err(SseHandlerError::NonCaughtResponseError {
-            message: error.to_string(),
-        })
+    fn catch(&self, error: SseHandlerError) -> std::result::Result<(), Self::Err> {
+        Err(error)
     }
 }
 
 pub type Result<T> = std::result::Result<T, SseHandlerError>;
-impl<Event> SseHandler<Event, NonReqErr, NonResErr>
+impl<Event> SseHandler<Event, NonCaughtError>
 where
     Event: EventHandler,
 {
@@ -76,18 +59,16 @@ where
                 }
             })?,
             event_handler,
-            request_error_handler: Some(NonReqErr {}),
-            response_error_handler: Some(NonResErr {}),
+            error_handler: NonCaughtError {},
         })
     }
 }
-impl<Event, ReqErr, ResErr> SseHandler<Event, ReqErr, ResErr>
+impl<Event, Er> SseHandler<Event, Er>
 where
     Event: EventHandler,
-    ReqErr: RequestErrorHandler,
-    ResErr: ResponseErrorHandler,
+    Er: ErrorHandler,
 {
-    pub fn new(url: &str, event_handler: Event) -> Result<Self> {
+    pub fn new(url: &str, event_handler: Event, error_handler: Er) -> Result<Self> {
         Ok(Self {
             subscriber: SseSubscriber::default(url).map_err(|e| {
                 SseHandlerError::SubscriberConstructionError {
@@ -96,8 +77,7 @@ where
                 }
             })?,
             event_handler,
-            request_error_handler: None,
-            response_error_handler: None,
+            error_handler,
         })
     }
     pub fn handle_subscribe_event(&mut self, request: Request) -> Result<()> {
@@ -110,14 +90,14 @@ where
                     match reader.read_line(&mut line) {
                         Ok(len) => read_len = len,
                         Err(e) => {
-                            return self.catch_io_error(&request, e);
+                            return self.catch_io_error(line.as_str(), &request, e);
                         }
                     }
                     match response_store.evaluate_lines(line.as_str()) {
                         Ok(response) => {
-                            if response.is_error() || read_len < 5 {
-                                return self.catch_response_error(
-                                    &response,
+                            if response.is_error() && read_len <= 5 {
+                                return self.catch_http_response_error(
+                                    response,
                                     &request,
                                     line.as_str(),
                                 );
@@ -129,9 +109,8 @@ where
                             if self
                                 .event_handler
                                 .handle(event)
-                                .map_err(|e| SseHandlerError::SubscribeRequestUserError {
+                                .map_err(|e| SseHandlerError::SubscribeUserError {
                                     message: e.to_string(),
-                                    request: request.clone(),
                                 })?
                                 .0
                             {
@@ -151,93 +130,48 @@ where
         }
         Ok(())
     }
-    fn catch_invalid_response_line_error(&self, line: &str, e: SseResponseError) -> Result<()> {
-        match self.response_error_handler {
-            Some(ref handler) => {
-                handler
-                    .catch(line)
-                    .map_err(|e| SseHandlerError::InvalidResponseLineError {
-                        message: e.to_string(),
-                        line: line.to_string(),
-                    })?;
-                Ok(())
-            }
-            None => {
-                return Err(SseHandlerError::InvalidResponseLineError {
-                    message: e.to_string(),
-                    line: line.to_string(),
-                });
-            }
-        }
-    }
-    fn catch_response_error(
+    fn catch_http_response_error(
         &self,
         response: &SseResponse,
         request: &Request,
         line: &str,
     ) -> Result<()> {
-        match self.response_error_handler {
-            Some(ref handler) => {
-                handler
-                    .catch(line)
-                    .map_err(|e| SseHandlerError::SubscribeResponseUserError {
-                        message: e.to_string(),
-                        request: request.clone(),
-                        response: response.clone(),
-                    })?;
-                Ok(())
-            }
-            None => {
-                return Err(SseHandlerError::SubscribeResponseError {
-                    message: format!("invalid response line: {}", line),
-                    request: request.clone(),
-                });
-            }
-        }
+        let error = SseHandlerError::HttpResponseError {
+            message: format!("http response error"),
+            read_line: line.to_string(),
+            request: request.clone(),
+            response: response.clone(),
+        };
+        self.catch(error)
     }
-    fn catch_io_error(&self, request: &Request, e: std::io::Error) -> Result<()> {
-        match self.response_error_handler {
-            Some(ref handler) => {
-                handler.catch(e.to_string().as_str()).map_err(|e| {
-                    SseHandlerError::ReadLineError {
-                        message: e.to_string(),
-                        request: request.clone(),
-                    }
-                })?;
-                Ok(())
-            }
-            None => {
-                return Err(SseHandlerError::SubscribeResponseError {
-                    message: e.to_string(),
-                    request: request.clone(),
-                });
-            }
-        }
+    fn catch_invalid_response_line_error(&self, line: &str, e: SseResponseError) -> Result<()> {
+        let error = SseHandlerError::InvalidResponseLineError {
+            message: e.to_string(),
+            line: line.to_string(),
+        };
+        self.catch(error)
+    }
+    fn catch_io_error(&self, read_line: &str, request: &Request, e: std::io::Error) -> Result<()> {
+        let error = SseHandlerError::ReadLineError {
+            message: e.to_string(),
+            read_line: read_line.to_string(),
+            request: request.clone(),
+        };
+        self.catch(error)
     }
     fn catch_request_error(&self, request: &Request, e: SseSubscriberError) -> Result<()> {
-        match self.request_error_handler {
-            Some(ref handler) => {
-                handler.catch(&request).map_err(|e| {
-                    SseHandlerError::SubscribeRequestUserError {
-                        message: e.to_string(),
-                        request: request.clone(),
-                    }
-                })?;
-                Ok(())
-            }
-            None => {
-                return Err(SseHandlerError::SubscribeRequestError {
-                    message: e.to_string(),
-                    request: request.clone(),
-                });
-            }
-        }
+        let error = SseHandlerError::SubscribeRequestError {
+            message: e.to_string(),
+            request: request.clone(),
+        };
+        self.catch(error)
     }
-    pub fn set_request_error_handler(&mut self, handler: ReqErr) {
-        self.request_error_handler = Some(handler);
-    }
-    pub fn set_response_error_handler(&mut self, handler: ResErr) {
-        self.response_error_handler = Some(handler);
+    fn catch(&self, error: SseHandlerError) -> Result<()> {
+        self.error_handler
+            .catch(error)
+            .map_err(|e| SseHandlerError::SubscribeUserError {
+                message: e.to_string(),
+            })
     }
 }
 
@@ -249,7 +183,14 @@ pub enum SseHandlerError {
     },
     ReadLineError {
         message: String,
+        read_line: String,
         request: Request,
+    },
+    HttpResponseError {
+        message: String,
+        read_line: String,
+        request: Request,
+        response: SseResponse,
     },
     SubscriberConstructionError {
         message: String,
@@ -263,14 +204,8 @@ pub enum SseHandlerError {
         message: String,
         request: Request,
     },
-    SubscribeRequestUserError {
+    SubscribeUserError {
         message: String,
-        request: Request,
-    },
-    SubscribeResponseUserError {
-        message: String,
-        response: SseResponse,
-        request: Request,
     },
     NonCaughtRequestError {
         request: Request,
@@ -303,24 +238,6 @@ impl Display for SseHandlerError {
                     message, request
                 )
             }
-            Self::SubscribeRequestUserError { message, request } => {
-                write!(
-                    f,
-                    "SseHandlerError::SubscribeRequestUserError{{message:{},request:{:?}}}",
-                    message, request
-                )
-            }
-            Self::SubscribeResponseUserError {
-                message,
-                response,
-                request,
-            } => {
-                write!(
-                    f,
-                    "SseHandlerError::SubscribeResponseUserError{{message:{},response:{:?},request:{:?}}}",
-                    message, response, request
-                )
-            }
             Self::NonCaughtRequestError { request } => {
                 write!(
                     f,
@@ -335,18 +252,41 @@ impl Display for SseHandlerError {
                     message
                 )
             }
-            Self::ReadLineError { message, request } => {
+            Self::ReadLineError {
+                read_line,
+                message,
+                request,
+            } => {
                 write!(
                     f,
-                    "SseHandlerError::ReadLineError{{message:{},request:{:?}}}",
-                    message, request
+                    "SseHandlerError::ReadLineError{{message:{},read_line:{},request:{:?}}}",
+                    message, read_line, request
                 )
             }
             Self::InvalidResponseLineError { message, line } => {
                 write!(
                     f,
-                    "SseHandlerError::InvalidResponseLineError{{message:{},line:{:?}}}",
-                    message, line
+                    "SseHandlerError::InvalidResponseLineError{{message:{},line:{}}}",
+                    message, line,
+                )
+            }
+            Self::SubscribeUserError { message } => {
+                write!(
+                    f,
+                    "SseHandlerError::SubscribeUserError{{message:{}}}",
+                    message,
+                )
+            }
+            Self::HttpResponseError {
+                message,
+                read_line,
+                request,
+                response,
+            } => {
+                write!(
+                    f,
+                    "SseHandlerError::HttpResponseError{{message:{},read_line:{},request:{:?},response:{:?}}}",
+                    message, read_line, request, response
                 )
             }
         }
