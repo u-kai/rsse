@@ -72,7 +72,7 @@ impl RequestBuilder {
         request
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Request(String);
 impl Request {
     pub fn bytes(&self) -> &[u8] {

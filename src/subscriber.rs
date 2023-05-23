@@ -20,7 +20,7 @@ pub enum SseSubscriberError {
     ClientConnectionError(String),
     TcpStreamConnectionError(String),
     ReadLineError(String),
-    WriteAllError(String),
+    WriteAllError { message: String, request: Request },
 }
 impl Display for SseSubscriberError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -29,7 +29,7 @@ impl Display for SseSubscriberError {
             Self::ClientConnectionError(e) => write!(f, "ClientConnectionError: {}", e),
             Self::ReadLineError(e) => write!(f, "ReadLineError: {}", e),
             Self::TcpStreamConnectionError(e) => write!(f, "TcpStreamConnectionError: {}", e),
-            Self::WriteAllError(e) => write!(f, "WriteAllError: {}", e),
+            Self::WriteAllError { message, .. } => write!(f, "WriteAllError: {}", message),
         }
     }
 }
@@ -70,13 +70,16 @@ impl SseSubscriber {
     }
     pub fn subscribe_stream<'a>(
         &'a mut self,
-        request: Request,
+        request: &Request,
     ) -> Result<BufReader<Stream<'a, ClientConnection, TcpStream>>> {
         let req = request.bytes();
         let mut tls_stream = rustls::Stream::new(&mut self.client, &mut self.tcp_stream);
-        tls_stream.write_all(req).map_err(|e| {
-            SseSubscriberError::WriteAllError(format!("error : {:#?}\nrequest : {:#?}", e, request))
-        })?;
+        tls_stream
+            .write_all(req)
+            .map_err(|e| SseSubscriberError::WriteAllError {
+                message: format!("error : {:#?}\n", e.to_string(),),
+                request: request.clone(),
+            })?;
         let reader = BufReader::new(tls_stream);
         Ok(reader)
     }

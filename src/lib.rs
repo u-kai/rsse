@@ -1,5 +1,6 @@
 pub mod client;
+pub mod event_handler;
 pub mod request_builder;
 pub mod response;
-pub mod stream_reader;
+pub mod subscriber;
 mod url;
