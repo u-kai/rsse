@@ -1,7 +1,7 @@
 use std::io::{stdout, Write};
 
 use rsse::{
-    event_handler::{EventHandler, SseFinished, SseHandler},
+    event_handler::{EventHandler, SseFinished, SseHandler, SseResult},
     request_builder::RequestBuilder,
 };
 
@@ -87,13 +87,12 @@ pub struct ChatChoicesDelta {
 struct Handler {}
 impl EventHandler for Handler {
     type Err = std::io::Error;
-    fn handle(&self, event: &str) -> std::result::Result<SseFinished, Self::Err> {
+    fn handle(&self, event: &str) -> std::result::Result<SseResult, Self::Err> {
         let chat = serde_json::from_str::<Chat>(event);
         match chat {
             Ok(chat) => {
                 if let Some(choice) = chat.choices.first() {
                     if let Some(content) = &choice.delta.content {
-                        //println!("{}", content)
                         print!("{}", content);
                         stdout().flush().unwrap();
                     }
@@ -101,18 +100,18 @@ impl EventHandler for Handler {
             }
             Err(e) => {
                 if event == "[DONE]" {
-                    return Ok(SseFinished::finish());
+                    return Ok(SseResult::Finished);
                 }
                 println!("{:?}", e);
             }
         }
-        Ok(SseFinished::r#continue())
+        Ok(SseResult::Continue)
     }
 }
 
 fn main() {
     let url = "https://api.openai.com/v1/chat/completions";
-    let mut handler = SseHandler::without_error_handlers(url, Handler {}).unwrap();
+    let handler = SseHandler::without_error_handlers(url, Handler {}).unwrap();
     loop {
         let mut message = String::new();
         print!("{} > ", std::env::var("USER").unwrap_or_default());

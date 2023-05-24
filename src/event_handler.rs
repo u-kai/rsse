@@ -27,13 +27,19 @@ impl Into<SseFinished> for bool {
         SseFinished(self)
     }
 }
+
+pub enum SseResult {
+    Finished,
+    Continue,
+    Retry,
+}
 pub trait EventHandler {
     type Err: std::error::Error;
-    fn handle(&self, event: &str) -> std::result::Result<SseFinished, Self::Err>;
+    fn handle(&self, event: &str) -> std::result::Result<SseResult, Self::Err>;
 }
 pub trait ErrorHandler {
     type Err: std::error::Error;
-    fn catch(&self, error: SseHandlerError) -> std::result::Result<(), Self::Err>;
+    fn catch(&self, error: SseHandlerError) -> std::result::Result<SseResult, Self::Err>;
 }
 pub struct SseHandler<Event, Er>
 where
@@ -47,7 +53,7 @@ where
 pub struct NonCaughtError {}
 impl ErrorHandler for NonCaughtError {
     type Err = SseHandlerError;
-    fn catch(&self, error: SseHandlerError) -> std::result::Result<(), Self::Err> {
+    fn catch(&self, error: SseHandlerError) -> std::result::Result<SseResult, Self::Err> {
         Err(error)
     }
 }
@@ -87,7 +93,7 @@ where
             error_handler,
         })
     }
-    pub fn handle_subscribe_event(&self, request: Request) -> Result<()> {
+    pub fn handle_subscribe_event(&self, request: Request) -> Result<SseResult> {
         match self.subscriber.borrow_mut().subscribe_stream(&request) {
             Ok(reader) => self.handle(reader, request),
             Err(e) => self.catch_request_error(&request, e),
@@ -97,7 +103,7 @@ where
         &self,
         mut reader: BufReader<Stream<ClientConnection, TcpStream>>,
         request: Request,
-    ) -> Result<()> {
+    ) -> Result<SseResult> {
         let mut response_store = SseResponseStore::new();
         let mut read_len = 1;
         let mut line = String::new();
@@ -105,7 +111,11 @@ where
             match reader.read_line(&mut line) {
                 Ok(len) => read_len = len,
                 Err(e) => {
-                    return self.catch_io_error(line.as_str(), &request, e);
+                    let result = self.catch_io_error(line.as_str(), &request, e);
+                    let Ok(SseResult::Retry) = result else{
+                        return result;
+                    };
+                    return self.handle(reader, request);
                 }
             }
             match response_store.evaluate_lines(line.as_str()) {
@@ -114,34 +124,40 @@ where
                         return self.catch_http_response_error(response, &request, line.as_str());
                     }
                     let Some(event) = response.new_event() else {
-                                line.clear();
-                                continue;
-                            };
-                    if self
-                        .event_handler
-                        .handle(event)
-                        .map_err(|e| SseHandlerError::SubscribeUserError {
+                        line.clear();
+                        continue;
+                    };
+                    let result = self.event_handler.handle(event).map_err(|e| {
+                        SseHandlerError::SubscribeUserError {
                             message: e.to_string(),
-                        })?
-                        .0
-                    {
-                        return Ok(());
+                        }
+                    })?;
+                    match result {
+                        SseResult::Finished => {
+                            return Ok(SseResult::Finished);
+                        }
+                        SseResult::Continue => {
+                            line.clear();
+                            continue;
+                        }
+                        SseResult::Retry => {
+                            return Ok(SseResult::Retry);
+                        }
                     };
                 }
                 Err(e) => {
                     return self.catch_invalid_response_line_error(line.as_str(), e);
                 }
             }
-            line.clear();
         }
-        Ok(())
+        Ok(SseResult::Finished)
     }
     fn catch_http_response_error(
         &self,
         response: &SseResponse,
         request: &Request,
         line: &str,
-    ) -> Result<()> {
+    ) -> Result<SseResult> {
         let error = SseHandlerError::HttpResponseError {
             message: format!("http response error"),
             read_line: line.to_string(),
@@ -150,14 +166,23 @@ where
         };
         self.catch(error)
     }
-    fn catch_invalid_response_line_error(&self, line: &str, e: SseResponseError) -> Result<()> {
+    fn catch_invalid_response_line_error(
+        &self,
+        line: &str,
+        e: SseResponseError,
+    ) -> Result<SseResult> {
         let error = SseHandlerError::InvalidResponseLineError {
             message: e.to_string(),
             line: line.to_string(),
         };
         self.catch(error)
     }
-    fn catch_io_error(&self, read_line: &str, request: &Request, e: std::io::Error) -> Result<()> {
+    fn catch_io_error(
+        &self,
+        read_line: &str,
+        request: &Request,
+        e: std::io::Error,
+    ) -> Result<SseResult> {
         let error = SseHandlerError::ReadLineError {
             message: e.to_string(),
             read_line: read_line.to_string(),
@@ -165,14 +190,14 @@ where
         };
         self.catch(error)
     }
-    fn catch_request_error(&self, request: &Request, e: SseSubscriberError) -> Result<()> {
+    fn catch_request_error(&self, request: &Request, e: SseSubscriberError) -> Result<SseResult> {
         let error = SseHandlerError::SubscribeRequestError {
             message: e.to_string(),
             request: request.clone(),
         };
         self.catch(error)
     }
-    fn catch(&self, error: SseHandlerError) -> Result<()> {
+    fn catch(&self, error: SseHandlerError) -> Result<SseResult> {
         self.error_handler
             .catch(error)
             .map_err(|e| SseHandlerError::SubscribeUserError {
