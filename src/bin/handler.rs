@@ -4,8 +4,9 @@ use std::{
 };
 
 use rsse::{
-    event_handler::{ErrorHandler, EventHandler, SseFinished, SseHandler, SseResult},
+    event_handler::{ErrorHandler, EventHandler, SseHandler, SseResult},
     request_builder::RequestBuilder,
+    subscriber::SseSubscriber,
 };
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -133,8 +134,8 @@ impl ErrorHandler for ErrHandler {
 
 fn main() {
     let url = "https://api.openai.com/v1/chat/completions";
+    let mut subscriber = SseSubscriber::default(url).unwrap();
     let handler = SseHandler::new(
-        url,
         Handler {},
         ErrHandler {
             count: RefCell::new(0),
@@ -158,7 +159,7 @@ fn main() {
                 }],
             })
             .build();
-
-        handler.handle_subscribe_event(request).unwrap();
+        let reader = subscriber.subscribe_stream(&request).unwrap();
+        handler.handle_event(reader, request).unwrap();
     }
 }

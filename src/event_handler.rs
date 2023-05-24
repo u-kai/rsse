@@ -1,5 +1,4 @@
 use std::{
-    cell::RefCell,
     fmt::Display,
     io::{BufRead, BufReader},
     net::TcpStream,
@@ -10,23 +9,7 @@ use rustls::{ClientConnection, Stream};
 use crate::{
     request_builder::Request,
     response::{SseResponse, SseResponseError, SseResponseStore},
-    subscriber::{SseSubscriber, SseSubscriberError},
 };
-
-pub struct SseFinished(bool);
-impl SseFinished {
-    pub fn finish() -> Self {
-        Self(true)
-    }
-    pub fn r#continue() -> Self {
-        Self(false)
-    }
-}
-impl Into<SseFinished> for bool {
-    fn into(self) -> SseFinished {
-        SseFinished(self)
-    }
-}
 
 pub enum SseResult {
     Finished,
@@ -46,7 +29,6 @@ where
     Event: EventHandler,
     Er: ErrorHandler,
 {
-    subscriber: RefCell<SseSubscriber>,
     event_handler: Event,
     error_handler: Er,
 }
@@ -63,14 +45,8 @@ impl<Event> SseHandler<Event, NonCaughtError>
 where
     Event: EventHandler,
 {
-    pub fn without_error_handlers(url: &str, event_handler: Event) -> Result<Self> {
+    pub fn without_error_handlers(event_handler: Event) -> Result<Self> {
         Ok(Self {
-            subscriber: RefCell::new(SseSubscriber::default(url).map_err(|e| {
-                SseHandlerError::SubscriberConstructionError {
-                    message: e.to_string(),
-                    url: url.to_string(),
-                }
-            })?),
             event_handler,
             error_handler: NonCaughtError {},
         })
@@ -81,25 +57,13 @@ where
     Event: EventHandler,
     Er: ErrorHandler,
 {
-    pub fn new(url: &str, event_handler: Event, error_handler: Er) -> Result<Self> {
+    pub fn new(event_handler: Event, error_handler: Er) -> Result<Self> {
         Ok(Self {
-            subscriber: RefCell::new(SseSubscriber::default(url).map_err(|e| {
-                SseHandlerError::SubscriberConstructionError {
-                    message: e.to_string(),
-                    url: url.to_string(),
-                }
-            })?),
             event_handler,
             error_handler,
         })
     }
-    pub fn handle_subscribe_event(&self, request: Request) -> Result<SseResult> {
-        match self.subscriber.borrow_mut().subscribe_stream(&request) {
-            Ok(reader) => self.handle(reader, request),
-            Err(e) => self.catch_request_error(&request, e),
-        }
-    }
-    fn handle(
+    pub fn handle_event(
         &self,
         mut reader: BufReader<Stream<ClientConnection, TcpStream>>,
         request: Request,
@@ -130,7 +94,7 @@ where
                         continue;
                     };
                     let result = self.event_handler.handle(event).map_err(|e| {
-                        SseHandlerError::SubscribeUserError {
+                        SseHandlerError::UserError {
                             message: e.to_string(),
                         }
                     })?;
@@ -162,7 +126,7 @@ where
         request: Request,
     ) -> Result<SseResult> {
         match result {
-            Ok(SseResult::Retry) => self.handle(reader, request),
+            Ok(SseResult::Retry) => self.handle_event(reader, request),
             _ => result,
         }
     }
@@ -204,17 +168,17 @@ where
         };
         self.catch(error)
     }
-    fn catch_request_error(&self, request: &Request, e: SseSubscriberError) -> Result<SseResult> {
-        let error = SseHandlerError::SubscribeRequestError {
-            message: e.to_string(),
-            request: request.clone(),
-        };
-        self.catch(error)
-    }
+    //fn catch_request_error(&self, request: &Request, e: SseSubscriberError) -> Result<SseResult> {
+    //let error = SseHandlerError::SubscribeRequestError {
+    //message: e.to_string(),
+    //request: request.clone(),
+    //};
+    //self.catch(error)
+    //}
     fn catch(&self, error: SseHandlerError) -> Result<SseResult> {
         self.error_handler
             .catch(error)
-            .map_err(|e| SseHandlerError::SubscribeUserError {
+            .map_err(|e| SseHandlerError::UserError {
                 message: e.to_string(),
             })
     }
@@ -249,7 +213,7 @@ pub enum SseHandlerError {
         message: String,
         request: Request,
     },
-    SubscribeUserError {
+    UserError {
         message: String,
     },
     NonCaughtRequestError {
@@ -315,12 +279,8 @@ impl Display for SseHandlerError {
                     message, line,
                 )
             }
-            Self::SubscribeUserError { message } => {
-                write!(
-                    f,
-                    "SseHandlerError::SubscribeUserError{{message:{}}}",
-                    message,
-                )
+            Self::UserError { message } => {
+                write!(f, "SseHandlerError::UserError{{message:{}}}", message,)
             }
             Self::HttpResponseError {
                 message,
