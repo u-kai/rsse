@@ -45,11 +45,11 @@ impl<Event> SseHandler<Event, NonCaughtError>
 where
     Event: EventHandler,
 {
-    pub fn without_error_handlers(event_handler: Event) -> Result<Self> {
-        Ok(Self {
+    pub fn without_error_handlers(event_handler: Event) -> Self {
+        Self {
             event_handler,
             error_handler: NonCaughtError {},
-        })
+        }
     }
 }
 impl<Event, Er> SseHandler<Event, Er>
@@ -57,11 +57,11 @@ where
     Event: EventHandler,
     Er: ErrorHandler,
 {
-    pub fn new(event_handler: Event, error_handler: Er) -> Result<Self> {
-        Ok(Self {
+    pub fn new(event_handler: Event, error_handler: Er) -> Self {
+        Self {
             event_handler,
             error_handler,
-        })
+        }
     }
     pub fn handle_event(
         &self,

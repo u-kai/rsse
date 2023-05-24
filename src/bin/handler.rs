@@ -140,8 +140,7 @@ fn main() {
         ErrHandler {
             count: RefCell::new(0),
         },
-    )
-    .unwrap();
+    );
     loop {
         let mut message = String::new();
         print!("{} > ", std::env::var("USER").unwrap_or_default());
