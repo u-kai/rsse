@@ -1,10 +1,7 @@
 use std::{
     fmt::Display,
-    io::{BufRead, BufReader},
-    net::TcpStream,
+    io::{BufRead, BufReader, Read},
 };
-
-use rustls::{ClientConnection, Stream};
 
 use crate::{
     request_builder::Request,
@@ -63,9 +60,9 @@ where
             error_handler,
         }
     }
-    pub fn handle_event(
+    pub fn handle_event<R: Read>(
         &self,
-        mut reader: BufReader<Stream<ClientConnection, TcpStream>>,
+        mut reader: BufReader<R>,
         request: Request,
     ) -> Result<SseResult> {
         let mut response_store = SseResponseStore::new();
@@ -119,10 +116,10 @@ where
         }
         Ok(SseResult::Finished)
     }
-    fn return_or_retry(
+    fn return_or_retry<R: Read>(
         &self,
         result: Result<SseResult>,
-        reader: BufReader<Stream<ClientConnection, TcpStream>>,
+        reader: BufReader<R>,
         request: Request,
     ) -> Result<SseResult> {
         match result {
@@ -168,13 +165,6 @@ where
         };
         self.catch(error)
     }
-    //fn catch_request_error(&self, request: &Request, e: SseSubscriberError) -> Result<SseResult> {
-    //let error = SseHandlerError::SubscribeRequestError {
-    //message: e.to_string(),
-    //request: request.clone(),
-    //};
-    //self.catch(error)
-    //}
     fn catch(&self, error: SseHandlerError) -> Result<SseResult> {
         self.error_handler
             .catch(error)
