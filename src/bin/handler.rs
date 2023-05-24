@@ -1,7 +1,10 @@
-use std::io::{stdout, Write};
+use std::{
+    cell::RefCell,
+    io::{stdout, Write},
+};
 
 use rsse::{
-    event_handler::{EventHandler, SseFinished, SseHandler, SseResult},
+    event_handler::{ErrorHandler, EventHandler, SseFinished, SseHandler, SseResult},
     request_builder::RequestBuilder,
 };
 
@@ -109,9 +112,35 @@ impl EventHandler for Handler {
     }
 }
 
+struct ErrHandler {
+    count: RefCell<usize>,
+}
+impl ErrorHandler for ErrHandler {
+    type Err = std::io::Error;
+    fn catch(
+        &self,
+        error: rsse::event_handler::SseHandlerError,
+    ) -> std::result::Result<SseResult, Self::Err> {
+        println!("{:?}", error);
+        if *self.count.borrow_mut() + 1 > 3 {
+            return Ok(SseResult::Finished);
+        }
+        println!("retry ");
+        *self.count.borrow_mut() += 1;
+        Ok(SseResult::Retry)
+    }
+}
+
 fn main() {
     let url = "https://api.openai.com/v1/chat/completions";
-    let handler = SseHandler::without_error_handlers(url, Handler {}).unwrap();
+    let handler = SseHandler::new(
+        url,
+        Handler {},
+        ErrHandler {
+            count: RefCell::new(0),
+        },
+    )
+    .unwrap();
     loop {
         let mut message = String::new();
         print!("{} > ", std::env::var("USER").unwrap_or_default());

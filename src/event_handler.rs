@@ -111,17 +111,19 @@ where
             match reader.read_line(&mut line) {
                 Ok(len) => read_len = len,
                 Err(e) => {
-                    let result = self.catch_io_error(line.as_str(), &request, e);
-                    let Ok(SseResult::Retry) = result else{
-                        return result;
-                    };
-                    return self.handle(reader, request);
+                    return self.return_or_retry(
+                        self.catch_io_error(line.as_str(), &request, e),
+                        reader,
+                        request,
+                    );
                 }
             }
             match response_store.evaluate_lines(line.as_str()) {
                 Ok(response) => {
                     if response.is_error() && read_len <= 5 {
-                        return self.catch_http_response_error(response, &request, line.as_str());
+                        let result =
+                            self.catch_http_response_error(response, &request, line.as_str());
+                        return self.return_or_retry(result, reader, request);
                     }
                     let Some(event) = response.new_event() else {
                         line.clear();
@@ -141,16 +143,28 @@ where
                             continue;
                         }
                         SseResult::Retry => {
-                            return Ok(SseResult::Retry);
+                            todo!()
                         }
                     };
                 }
                 Err(e) => {
-                    return self.catch_invalid_response_line_error(line.as_str(), e);
+                    let result = self.catch_invalid_response_line_error(line.as_str(), e);
+                    return self.return_or_retry(result, reader, request);
                 }
             }
         }
         Ok(SseResult::Finished)
+    }
+    fn return_or_retry(
+        &self,
+        result: Result<SseResult>,
+        reader: BufReader<Stream<ClientConnection, TcpStream>>,
+        request: Request,
+    ) -> Result<SseResult> {
+        match result {
+            Ok(SseResult::Retry) => self.handle(reader, request),
+            _ => result,
+        }
     }
     fn catch_http_response_error(
         &self,
