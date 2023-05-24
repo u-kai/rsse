@@ -71,6 +71,7 @@ impl SseResponseStore {
         self.response = Some(response);
         Ok(self.response.as_ref().unwrap())
     }
+    #[allow(dead_code)]
     pub fn add_response(mut self, line: &str) -> Result<Self> {
         let Some(response) = self.response else {
             self.response = Some(SseResponse::from_line(line)?);
@@ -79,6 +80,7 @@ impl SseResponseStore {
         self.response = Some(response.add_line(line)?);
         Ok(self)
     }
+    #[allow(dead_code)]
     pub fn response(&self) -> Option<&SseResponse> {
         self.response.as_ref()
     }
@@ -252,9 +254,11 @@ impl FromLine for SseHeader {
     }
 }
 impl SseHeader {
+    #[allow(dead_code)]
     pub fn key(&self) -> &str {
         self.name.as_str()
     }
+    #[allow(dead_code)]
     pub fn value(&self) -> &str {
         self.value.as_str()
     }
@@ -360,89 +364,6 @@ impl HttpVersion {
             Self::Http1_1 => "HTTP/1.1",
             Self::Http2_0 => "HTTP/2.0",
         }
-    }
-}
-#[derive(Debug, Clone)]
-pub struct HttpResponse {
-    status_code: u32,
-    headers: HashMap<String, String>,
-    body: Vec<String>,
-    is_next_body: bool,
-    is_next_header: bool,
-    next_line_count: usize,
-    all: String,
-}
-impl HttpResponse {
-    pub fn new() -> Self {
-        Self {
-            all: String::new(),
-            status_code: 0,
-            headers: HashMap::new(),
-            body: Vec::new(),
-            is_next_body: false,
-            is_next_header: false,
-            next_line_count: 0,
-        }
-    }
-    pub fn add_line(&mut self, line: &str) {
-        self.all.push_str(line);
-        if self.is_start_line() && line.starts_with("HTTP/") {
-            self.status_code = line.split(" ").nth(1).unwrap().parse().unwrap();
-            self.is_next_header = true;
-            return;
-        }
-        if self.is_next_header || line == "\r\n" {
-            self.next_line_count += 1;
-            return;
-        }
-        if self.next_line_count == 2 {
-            self.is_next_body = true;
-            self.is_next_header = false;
-            self.next_line_count = 0;
-            return;
-        }
-        if self.is_next_header {
-            //&& line.contains(":") {
-            self.next_line_count = 0;
-            let mut iter = line.split(":");
-            let key = iter.next().unwrap().trim().to_string();
-            let value = iter.next().unwrap().trim().to_string();
-            self.headers.insert(key, value);
-            return;
-        }
-        if self.is_next_body {
-            self.body.push(line.into());
-        }
-    }
-    pub fn status_code(&self) -> u32 {
-        self.status_code
-    }
-    pub fn get_header(&self, key: &str) -> Option<&str> {
-        self.headers.get(key).map(|v| v.as_str())
-    }
-    pub fn body(&self) -> String {
-        self.body.iter().fold(String::new(), |mut acc, cur| {
-            acc.push_str(cur.as_str());
-            acc
-        })
-    }
-    pub fn has_error(&self) -> bool {
-        self.status_code >= 400 && self.status_code < 600
-    }
-    pub fn to_string(&self) -> String {
-        self.all.clone()
-    }
-    fn is_start_line(&self) -> bool {
-        self.status_code == 0 && self.headers.is_empty()
-    }
-    pub fn new_event(&self) -> Option<String> {
-        for line in self.body.iter().rev() {
-            if line.starts_with("data:") {
-                let data = line.replacen("data: ", "", 1);
-                return Some(data);
-            }
-        }
-        None
     }
 }
 
