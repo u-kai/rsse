@@ -12,34 +12,35 @@ mod subscriber;
 mod url;
 
 #[derive(Debug, Clone, Copy)]
-pub enum SseResult {
-    Finished,
+pub enum SseResult<T> {
+    Finished(T),
     Continue,
     Retry,
 }
-pub trait EventHandler {
+pub trait EventHandler<T> {
     type Err: std::error::Error;
-    fn handle(&self, event: &str) -> std::result::Result<SseResult, Self::Err>;
+    fn handle(&self, event: &str) -> std::result::Result<SseResult<T>, Self::Err>;
+    fn resolved(&self) -> std::result::Result<SseResult<T>, Self::Err>;
 }
-pub trait ErrorHandler {
+pub trait ErrorHandler<T> {
     type Err: std::error::Error;
-    fn catch(&self, error: SseHandlerError) -> std::result::Result<SseResult, Self::Err>;
+    fn catch(&self, error: SseHandlerError) -> std::result::Result<SseResult<T>, Self::Err>;
 }
 
-pub struct SseClient<Event, Err>
+pub struct SseClient<Event, Err, T>
 where
-    Event: EventHandler,
-    Err: ErrorHandler,
+    Event: EventHandler<T>,
+    Err: ErrorHandler<T>,
 {
     subscriber: SseSubscriber,
-    handler: SseHandler<Event, Err>,
+    handler: SseHandler<Event, Err, T>,
     request_builder: RequestBuilder,
 }
 
-impl<Event, Err> SseClient<Event, Err>
+impl<Event, Err, T> SseClient<Event, Err, T>
 where
-    Event: EventHandler,
-    Err: ErrorHandler,
+    Event: EventHandler<T>,
+    Err: ErrorHandler<T>,
 {
     pub fn new(url: &str, event_handler: Event, error_handler: Err) -> Result<Self> {
         let subscriber =
@@ -66,14 +67,14 @@ where
             ..self
         }
     }
-    pub fn json<T: serde::Serialize>(self, json: T) -> Self {
+    pub fn json<S: serde::Serialize>(self, json: S) -> Self {
         let request_builder = self.request_builder.json(json);
         Self {
             request_builder,
             ..self
         }
     }
-    pub fn handle_event(mut self) -> Result<SseResult> {
+    pub fn handle_event(mut self) -> Result<SseResult<T>> {
         let request = self.request_builder.build();
         let reader = self
             .subscriber
@@ -84,18 +85,18 @@ where
             .map_err(|e| SseClientError::SseHandlerError(e))
     }
 }
-impl<Event> SseClient<Event, NonCaughtError>
+impl<Event, T> SseClient<Event, NonCaughtError, T>
 where
-    Event: EventHandler,
+    Event: EventHandler<T>,
 {
     pub fn without_error_handlers(url: &str, event_handler: Event) -> Result<Self> {
         Self::new(url, event_handler, NonCaughtError {})
     }
 }
 pub struct NonCaughtError {}
-impl ErrorHandler for NonCaughtError {
+impl<T> ErrorHandler<T> for NonCaughtError {
     type Err = SseHandlerError;
-    fn catch(&self, error: SseHandlerError) -> std::result::Result<SseResult, Self::Err> {
+    fn catch(&self, error: SseHandlerError) -> std::result::Result<SseResult<T>, Self::Err> {
         Err(error)
     }
 }

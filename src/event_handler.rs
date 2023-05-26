@@ -1,4 +1,7 @@
-use std::io::{BufRead, BufReader, Read};
+use std::{
+    io::{BufRead, BufReader, Read},
+    marker::PhantomData,
+};
 
 use crate::{
     request_builder::Request,
@@ -6,32 +9,34 @@ use crate::{
     ErrorHandler, EventHandler, SseHandlerError, SseResult,
 };
 
-pub struct SseHandler<Event, Er>
+pub struct SseHandler<Event, Er, T>
 where
-    Event: EventHandler,
-    Er: ErrorHandler,
+    Event: EventHandler<T>,
+    Er: ErrorHandler<T>,
 {
     event_handler: Event,
     error_handler: Er,
+    _p: PhantomData<T>,
 }
 
 pub type Result<T> = std::result::Result<T, SseHandlerError>;
-impl<Event, Er> SseHandler<Event, Er>
+impl<Event, Er, T> SseHandler<Event, Er, T>
 where
-    Event: EventHandler,
-    Er: ErrorHandler,
+    Event: EventHandler<T>,
+    Er: ErrorHandler<T>,
 {
     pub fn new(event_handler: Event, error_handler: Er) -> Self {
         Self {
             event_handler,
             error_handler,
+            _p: PhantomData {},
         }
     }
     pub fn handle_event<R: Read>(
         &self,
         mut reader: BufReader<R>,
         request: Request,
-    ) -> Result<SseResult> {
+    ) -> Result<SseResult<T>> {
         let mut response_store = SseResponseStore::new();
         let mut read_len = 1;
         let mut line = String::new();
@@ -63,8 +68,8 @@ where
                         }
                     })?;
                     match result {
-                        SseResult::Finished => {
-                            return Ok(SseResult::Finished);
+                        SseResult::Finished(a) => {
+                            return Ok(SseResult::Finished(a));
                         }
                         SseResult::Continue => {
                             line.clear();
@@ -81,14 +86,19 @@ where
                 }
             }
         }
-        Ok(SseResult::Finished)
+        //Ok(SseResult::Finished)
+        self.event_handler
+            .resolved()
+            .map_err(|e| SseHandlerError::UserError {
+                message: e.to_string(),
+            })
     }
     fn return_or_retry<R: Read>(
         &self,
-        result: Result<SseResult>,
+        result: Result<SseResult<T>>,
         reader: BufReader<R>,
         request: Request,
-    ) -> Result<SseResult> {
+    ) -> Result<SseResult<T>> {
         match result {
             Ok(SseResult::Retry) => self.handle_event(reader, request),
             _ => result,
@@ -99,7 +109,7 @@ where
         response: &SseResponse,
         request: &Request,
         line: &str,
-    ) -> Result<SseResult> {
+    ) -> Result<SseResult<T>> {
         let error = SseHandlerError::HttpResponseError {
             message: format!("http response error"),
             read_line: line.to_string(),
@@ -112,7 +122,7 @@ where
         &self,
         line: &str,
         e: SseResponseError,
-    ) -> Result<SseResult> {
+    ) -> Result<SseResult<T>> {
         let error = SseHandlerError::InvalidResponseLineError {
             message: e.to_string(),
             line: line.to_string(),
@@ -124,7 +134,7 @@ where
         read_line: &str,
         request: &Request,
         e: std::io::Error,
-    ) -> Result<SseResult> {
+    ) -> Result<SseResult<T>> {
         let error = SseHandlerError::ReadLineError {
             message: e.to_string(),
             read_line: read_line.to_string(),
@@ -132,7 +142,7 @@ where
         };
         self.catch(error)
     }
-    fn catch(&self, error: SseHandlerError) -> Result<SseResult> {
+    fn catch(&self, error: SseHandlerError) -> Result<SseResult<T>> {
         self.error_handler
             .catch(error)
             .map_err(|e| SseHandlerError::UserError {

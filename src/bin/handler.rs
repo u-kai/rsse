@@ -85,9 +85,9 @@ pub struct ChatChoicesDelta {
 }
 
 struct Handler {}
-impl EventHandler for Handler {
+impl EventHandler<()> for Handler {
     type Err = std::io::Error;
-    fn handle(&self, event: &str) -> std::result::Result<SseResult, Self::Err> {
+    fn handle(&self, event: &str) -> std::result::Result<SseResult<()>, Self::Err> {
         let chat = serde_json::from_str::<Chat>(event);
         match chat {
             Ok(chat) => {
@@ -100,24 +100,27 @@ impl EventHandler for Handler {
             }
             Err(e) => {
                 if event == "[DONE]" {
-                    return Ok(SseResult::Finished);
+                    return Ok(SseResult::Finished(()));
                 }
                 println!("{:?}", e);
             }
         }
         Ok(SseResult::Continue)
     }
+    fn resolved(&self) -> std::result::Result<SseResult<()>, Self::Err> {
+        Ok(SseResult::Finished(()))
+    }
 }
 
 struct ErrHandler {
     count: RefCell<usize>,
 }
-impl ErrorHandler for ErrHandler {
+impl ErrorHandler<()> for ErrHandler {
     type Err = std::io::Error;
-    fn catch(&self, error: rsse::SseHandlerError) -> std::result::Result<SseResult, Self::Err> {
+    fn catch(&self, error: rsse::SseHandlerError) -> std::result::Result<SseResult<()>, Self::Err> {
         println!("{:?}", error);
         if *self.count.borrow_mut() + 1 > 3 {
-            return Ok(SseResult::Finished);
+            return Ok(SseResult::Finished(()));
         }
         println!("retry ");
         *self.count.borrow_mut() += 1;
