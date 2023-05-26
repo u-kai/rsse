@@ -20,7 +20,7 @@ pub enum SseResult<T> {
 pub trait EventHandler<T> {
     type Err: std::error::Error;
     fn handle(&self, event: &str) -> std::result::Result<SseResult<T>, Self::Err>;
-    fn resolved(&self) -> std::result::Result<SseResult<T>, Self::Err>;
+    fn finished(&self) -> std::result::Result<SseResult<T>, Self::Err>;
 }
 pub trait ErrorHandler<T> {
     type Err: std::error::Error;

@@ -107,7 +107,7 @@ impl EventHandler<()> for Handler {
         }
         Ok(SseResult::Continue)
     }
-    fn resolved(&self) -> std::result::Result<SseResult<()>, Self::Err> {
+    fn finished(&self) -> std::result::Result<SseResult<()>, Self::Err> {
         Ok(SseResult::Finished(()))
     }
 }
