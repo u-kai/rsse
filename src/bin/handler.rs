@@ -1,5 +1,5 @@
 use std::{
-    cell::RefCell,
+    cell::{Ref, RefCell},
     io::{stdout, Write},
 };
 
@@ -7,6 +7,7 @@ use rsse::{
     event_handler::{ErrorHandler, EventHandler, SseHandler, SseResult},
     request_builder::RequestBuilder,
     subscriber::SseSubscriber,
+    SseClient,
 };
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -134,31 +135,53 @@ impl ErrorHandler for ErrHandler {
 
 fn main() {
     let url = "https://api.openai.com/v1/chat/completions";
-    let mut subscriber = SseSubscriber::default(url).unwrap();
-    let handler = SseHandler::new(
-        Handler {},
-        ErrHandler {
-            count: RefCell::new(0),
-        },
-    );
+    //let handler = SseHandler::new(
+    //Handler {},
+    //ErrHandler {
+    //count: RefCell::new(0),
+    //},
+    //);
     loop {
+        //let mut subscriber = SseSubscriber::default(url).unwrap();
+
         let mut message = String::new();
         print!("{} > ", std::env::var("USER").unwrap_or_default());
         std::io::stdout().flush().unwrap();
         std::io::stdin().read_line(&mut message).unwrap();
-        let request = RequestBuilder::new(url)
-            .bearer_auth(std::env::var("OPENAI_API_KEY").unwrap().as_str())
-            .post()
-            .json(ChatRequest {
-                stream: true,
-                model: OpenAIModel::Gpt3Dot5Turbo,
-                messages: vec![Message {
-                    role: Role::User,
-                    content: message,
-                }],
-            })
-            .build();
-        let reader = subscriber.subscribe_stream(&request).unwrap();
-        handler.handle_event(reader, request).unwrap();
+        let result = SseClient::new(
+            url,
+            Handler {},
+            ErrHandler {
+                count: RefCell::new(0),
+            },
+        )
+        .unwrap()
+        .bearer_auth(std::env::var("OPENAI_API_KEY").unwrap().as_str())
+        .post()
+        .json(ChatRequest {
+            stream: true,
+            model: OpenAIModel::Gpt3Dot5Turbo,
+            messages: vec![Message {
+                role: Role::User,
+                content: message,
+            }],
+        })
+        .handle_event()
+        .unwrap();
+        println!("{:#?}", result);
+        //let request = RequestBuilder::new(url)
+        //.bearer_auth(std::env::var("OPENAI_API_KEY").unwrap().as_str())
+        //.post()
+        //.json(ChatRequest {
+        //stream: true,
+        //model: OpenAIModel::Gpt3Dot5Turbo,
+        //messages: vec![Message {
+        //role: Role::User,
+        //content: message,
+        //}],
+        //})
+        //.build();
+        //let reader = subscriber.subscribe_stream(&request).unwrap();
+        //handler.handle_event(reader, request).unwrap();
     }
 }

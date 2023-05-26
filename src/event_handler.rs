@@ -8,6 +8,7 @@ use crate::{
     response::{SseResponse, SseResponseError, SseResponseStore},
 };
 
+#[derive(Debug, Clone, Copy)]
 pub enum SseResult {
     Finished,
     Continue,
