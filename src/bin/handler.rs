@@ -1,14 +1,9 @@
 use std::{
-    cell::{Ref, RefCell},
+    cell::RefCell,
     io::{stdout, Write},
 };
 
-use rsse::{
-    event_handler::{ErrorHandler, EventHandler, SseHandler, SseResult},
-    request_builder::RequestBuilder,
-    subscriber::SseSubscriber,
-    SseClient,
-};
+use rsse::{ErrorHandler, EventHandler, SseClient, SseResult};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct ChatRequest {
@@ -119,10 +114,7 @@ struct ErrHandler {
 }
 impl ErrorHandler for ErrHandler {
     type Err = std::io::Error;
-    fn catch(
-        &self,
-        error: rsse::event_handler::SseHandlerError,
-    ) -> std::result::Result<SseResult, Self::Err> {
+    fn catch(&self, error: rsse::SseHandlerError) -> std::result::Result<SseResult, Self::Err> {
         println!("{:?}", error);
         if *self.count.borrow_mut() + 1 > 3 {
             return Ok(SseResult::Finished);
@@ -135,15 +127,7 @@ impl ErrorHandler for ErrHandler {
 
 fn main() {
     let url = "https://api.openai.com/v1/chat/completions";
-    //let handler = SseHandler::new(
-    //Handler {},
-    //ErrHandler {
-    //count: RefCell::new(0),
-    //},
-    //);
     loop {
-        //let mut subscriber = SseSubscriber::default(url).unwrap();
-
         let mut message = String::new();
         print!("{} > ", std::env::var("USER").unwrap_or_default());
         std::io::stdout().flush().unwrap();
@@ -169,19 +153,5 @@ fn main() {
         .handle_event()
         .unwrap();
         println!("{:#?}", result);
-        //let request = RequestBuilder::new(url)
-        //.bearer_auth(std::env::var("OPENAI_API_KEY").unwrap().as_str())
-        //.post()
-        //.json(ChatRequest {
-        //stream: true,
-        //model: OpenAIModel::Gpt3Dot5Turbo,
-        //messages: vec![Message {
-        //role: Role::User,
-        //content: message,
-        //}],
-        //})
-        //.build();
-        //let reader = subscriber.subscribe_stream(&request).unwrap();
-        //handler.handle_event(reader, request).unwrap();
     }
 }

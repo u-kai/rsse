@@ -1,27 +1,11 @@
-use std::{
-    fmt::Display,
-    io::{BufRead, BufReader, Read},
-};
+use std::io::{BufRead, BufReader, Read};
 
 use crate::{
     request_builder::Request,
     response::{SseResponse, SseResponseError, SseResponseStore},
+    ErrorHandler, EventHandler, SseHandlerError, SseResult,
 };
 
-#[derive(Debug, Clone, Copy)]
-pub enum SseResult {
-    Finished,
-    Continue,
-    Retry,
-}
-pub trait EventHandler {
-    type Err: std::error::Error;
-    fn handle(&self, event: &str) -> std::result::Result<SseResult, Self::Err>;
-}
-pub trait ErrorHandler {
-    type Err: std::error::Error;
-    fn catch(&self, error: SseHandlerError) -> std::result::Result<SseResult, Self::Err>;
-}
 pub struct SseHandler<Event, Er>
 where
     Event: EventHandler,
@@ -30,26 +14,8 @@ where
     event_handler: Event,
     error_handler: Er,
 }
-pub struct NonCaughtError {}
-impl ErrorHandler for NonCaughtError {
-    type Err = SseHandlerError;
-    fn catch(&self, error: SseHandlerError) -> std::result::Result<SseResult, Self::Err> {
-        Err(error)
-    }
-}
 
 pub type Result<T> = std::result::Result<T, SseHandlerError>;
-impl<Event> SseHandler<Event, NonCaughtError>
-where
-    Event: EventHandler,
-{
-    pub fn without_error_handlers(event_handler: Event) -> Self {
-        Self {
-            event_handler,
-            error_handler: NonCaughtError {},
-        }
-    }
-}
 impl<Event, Er> SseHandler<Event, Er>
 where
     Event: EventHandler,
@@ -174,118 +140,3 @@ where
             })
     }
 }
-
-#[derive(Debug)]
-pub enum SseHandlerError {
-    InvalidResponseLineError {
-        message: String,
-        line: String,
-    },
-    ReadLineError {
-        message: String,
-        read_line: String,
-        request: Request,
-    },
-    HttpResponseError {
-        message: String,
-        read_line: String,
-        request: Request,
-        response: SseResponse,
-    },
-    SubscriberConstructionError {
-        message: String,
-        url: String,
-    },
-    SubscribeRequestError {
-        message: String,
-        request: Request,
-    },
-    SubscribeResponseError {
-        message: String,
-        request: Request,
-    },
-    UserError {
-        message: String,
-    },
-    NonCaughtRequestError {
-        request: Request,
-    },
-    NonCaughtResponseError {
-        message: String,
-    },
-}
-impl Display for SseHandlerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SseHandlerError::SubscriberConstructionError { message, url } => {
-                write!(
-                    f,
-                    "SseHandlerError::SubscriberConstructionError{{message:{},url:{}}}",
-                    message, url
-                )
-            }
-            Self::SubscribeRequestError { message, request } => {
-                write!(
-                    f,
-                    "SseHandlerError::SubscribeRequestError{{message:{},request:{:?}}}",
-                    message, request
-                )
-            }
-            Self::SubscribeResponseError { message, request } => {
-                write!(
-                    f,
-                    "SseHandlerError::SubscribeResponseError{{message:{},request:{:?}}}",
-                    message, request
-                )
-            }
-            Self::NonCaughtRequestError { request } => {
-                write!(
-                    f,
-                    "SseHandlerError::NonCaughtRequestError{{request:{:?}}}",
-                    request
-                )
-            }
-            Self::NonCaughtResponseError { message } => {
-                write!(
-                    f,
-                    "SseHandlerError::NonCaughtResponseError{{message:{}}}",
-                    message
-                )
-            }
-            Self::ReadLineError {
-                read_line,
-                message,
-                request,
-            } => {
-                write!(
-                    f,
-                    "SseHandlerError::ReadLineError{{message:{},read_line:{},request:{:?}}}",
-                    message, read_line, request
-                )
-            }
-            Self::InvalidResponseLineError { message, line } => {
-                write!(
-                    f,
-                    "SseHandlerError::InvalidResponseLineError{{message:{},line:{}}}",
-                    message, line,
-                )
-            }
-            Self::UserError { message } => {
-                write!(f, "SseHandlerError::UserError{{message:{}}}", message,)
-            }
-            Self::HttpResponseError {
-                message,
-                read_line,
-                request,
-                response,
-            } => {
-                write!(
-                    f,
-                    "SseHandlerError::HttpResponseError{{message:{},read_line:{},request:{:?},response:{:?}}}",
-                    message, read_line, request, response
-                )
-            }
-        }
-    }
-}
-impl std::error::Error for SseHandlerError {}
