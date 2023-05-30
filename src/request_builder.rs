@@ -185,13 +185,13 @@ mod tests {
             "CONNECT localhost:443 HTTP/1.1\r\nHost: localhost:443\r\nConnection: keep-alive\r\n\r\n"
         )
     }
-    #[tokio::test]
-    #[ignore = "dockerを利用したproxyのテスト"]
-    async fn proxy_test() {
-        let mut connector = HttpConnector::default("https://www.google.com");
-        connector.connect("http://localhost:8080").await;
-        assert!(false);
-    }
+    //#[tokio::test]
+    //#[ignore = "dockerを利用したproxyのテスト"]
+    //async fn proxy_test() {
+    //let mut connector = HttpConnector::default("https://www.google.com");
+    //connector.connect("http://localhost:8080").await;
+    //assert!(false);
+    //}
     #[tokio::test]
     #[ignore = "dockerを利用したproxyのテスト"]
     async fn proxy_test_sse() {
@@ -203,7 +203,10 @@ mod tests {
         let mut reader = connector.subscribe_stream(&request).unwrap();
         let mut buf = String::new();
         while reader.read_line(&mut buf).unwrap() > 0 {
-            println!("{}", buf);
+            if buf.contains("200") {
+                assert!(true);
+                return;
+            }
             buf.clear();
         }
         assert!(false);

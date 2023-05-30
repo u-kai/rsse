@@ -56,9 +56,9 @@ impl HttpConnector {
     pub async fn connect(&mut self, proxy_url: &str) {
         let proxy_url = Url::from_str(proxy_url).unwrap();
         let request = RequestBuilder::new(self.url.clone()).connect().build();
-        let mut stream = tokio::net::TcpStream::connect(proxy_url.to_addr_str())
-            .await
-            .unwrap();
+        //let mut stream = tokio::net::TcpStream::connect(proxy_url.to_addr_str())
+        //.await
+        //.unwrap();
         let mut stream = TcpStream::connect(proxy_url.to_addr_str()).unwrap();
         let mut buf = vec![0; 4096];
         //stream.write_all(request.bytes()).await.unwrap();

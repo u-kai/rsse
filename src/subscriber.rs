@@ -90,14 +90,16 @@ impl SseSubscriber {
         }));
         let url =
             Url::from_str(url).map_err(|e| SseSubscriberError::InvalidUrlError(e.to_string()))?;
-        let mut socket = TcpStream::connect(proxy_url)
-            .map_err(|e| SseSubscriberError::TcpStreamConnectionError(e.to_string()))?;
         let request = RequestBuilder::new(url.clone()).connect().build();
+        let proxy_url = Url::from_str(proxy_url)
+            .map_err(|e| SseSubscriberError::InvalidUrlError(e.to_string()))?;
+        let mut socket = TcpStream::connect(proxy_url.to_addr_str())
+            .map_err(|e| SseSubscriberError::TcpStreamConnectionError(e.to_string()))?;
         socket.write_all(request.bytes()).unwrap();
         let mut buf = vec![0; 4096];
         while socket.read(&mut buf).unwrap() > 0 {
             let response = String::from_utf8(buf.clone()).unwrap();
-            if response.contains("200 OK") {
+            if response.contains("200") {
                 break;
             }
         }

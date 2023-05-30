@@ -44,8 +44,12 @@ where
     Err: ErrorHandler<T>,
 {
     pub fn new(url: &str, event_handler: Event, error_handler: Err) -> Result<Self> {
-        let subscriber =
-            SseSubscriber::default(url).map_err(|e| SseClientError::SseSubscriberError(e))?;
+        let subscriber = if std::env::var("HTTP_PROXY").is_ok() {
+            SseSubscriber::with_proxy(std::env::var("HTTP_PROXY").unwrap().as_str(), url)
+                .map_err(|e| SseClientError::SseSubscriberError(e))?
+        } else {
+            SseSubscriber::default(url).map_err(|e| SseClientError::SseSubscriberError(e))?
+        };
         let handler = event_handler::SseHandler::new(event_handler, error_handler);
         let request_builder = RequestBuilder::new(url);
         Ok(Self {
