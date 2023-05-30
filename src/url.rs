@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Url {
     scheme: Schema,
     host: String,
@@ -77,7 +77,7 @@ impl Into<Url> for &str {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum Schema {
     Http,
     Https,

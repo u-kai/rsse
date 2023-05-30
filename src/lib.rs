@@ -5,6 +5,7 @@ use request_builder::{Request, RequestBuilder};
 use response::SseResponse;
 use subscriber::SseSubscriber;
 
+mod connector;
 mod event_handler;
 mod request_builder;
 mod response;

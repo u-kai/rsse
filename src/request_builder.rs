@@ -18,6 +18,10 @@ impl RequestBuilder {
             body: String::new(),
         }
     }
+    pub fn get(mut self) -> Self {
+        self.method = HttpMethod::Get;
+        self
+    }
     pub fn post(mut self) -> Self {
         self.method = HttpMethod::Post;
         self
@@ -61,7 +65,15 @@ impl RequestBuilder {
         request.push_str(self.method.to_str());
         request.push_str(" ");
         match self.method {
-            HttpMethod::Get => {}
+            HttpMethod::Get => {
+                request.push_str(self.url.path());
+                request.push_str(" HTTP/1.1\r\n");
+                request.push_str("Host: ");
+                request.push_str(self.url.host());
+                request.push_str("\r\n");
+                request.push_str("Connection: close\r\n");
+                request.push_str("\r\n");
+            }
             HttpMethod::Post => {
                 request.push_str(self.url.path());
                 request.push_str(" HTTP/1.1\r\n");
@@ -81,6 +93,7 @@ impl RequestBuilder {
                 request.push_str("Host: ");
                 request.push_str(self.url.host());
                 request.push_str(&format!(":{}", self.url.port()));
+                request.push_str("\r\n");
                 request.push_str("\r\n");
             }
         }
@@ -115,7 +128,7 @@ impl HttpMethod {
 mod tests {
     use std::vec;
 
-    use crate::url::Url;
+    use crate::{connector::HttpConnector, url::Url};
 
     use super::*;
     #[test]
@@ -169,7 +182,14 @@ mod tests {
         let request = RequestBuilder::new(url).connect().to_request();
         assert_eq!(
             request,
-            "CONNECT localhost:443 HTTP/1.1\r\nHost: localhost:443\r\n"
+            "CONNECT localhost:443 HTTP/1.1\r\nHost: localhost:443\r\nConnection: keep-alive\r\n\r\n"
         )
+    }
+    #[tokio::test]
+    #[ignore = "dockerを利用したproxyのテスト"]
+    async fn proxy_test() {
+        let mut connector = HttpConnector::default("https://www.google.com");
+        connector.connect("http://localhost:8080").await;
+        assert!(false);
     }
 }
