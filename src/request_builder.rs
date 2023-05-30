@@ -22,6 +22,10 @@ impl RequestBuilder {
         self.method = HttpMethod::Post;
         self
     }
+    pub fn connect(mut self) -> Self {
+        self.method = HttpMethod::Connect;
+        self
+    }
     pub fn header(mut self, key: &str, value: &str) -> Self {
         self.headers.insert(key.to_string(), value.to_string());
         self
@@ -54,21 +58,32 @@ impl RequestBuilder {
     }
     fn to_request(&self) -> String {
         let mut request = String::new();
-        match self.method {
-            HttpMethod::Get => request.push_str("GET"),
-            HttpMethod::Post => request.push_str("POST"),
-        }
+        request.push_str(self.method.to_str());
         request.push_str(" ");
-        request.push_str(self.url.path());
-        request.push_str(" HTTP/1.1\r\n");
-        request.push_str("Host: ");
-        request.push_str(self.url.host());
-        request.push_str("\r\n");
-        request.push_str("Accept: text/event-stream\r\n");
-        request.push_str("Connection: keep-alive\r\n");
-        request.push_str(self.header_string().as_str());
-        request.push_str("\r\n");
-        request.push_str(self.body.as_str());
+        match self.method {
+            HttpMethod::Get => {}
+            HttpMethod::Post => {
+                request.push_str(self.url.path());
+                request.push_str(" HTTP/1.1\r\n");
+                request.push_str("Host: ");
+                request.push_str(self.url.host());
+                request.push_str("\r\n");
+                request.push_str("Accept: text/event-stream\r\n");
+                request.push_str("Connection: keep-alive\r\n");
+                request.push_str(self.header_string().as_str());
+                request.push_str("\r\n");
+                request.push_str(self.body.as_str());
+            }
+            HttpMethod::Connect => {
+                request.push_str(self.url.host());
+                request.push_str(&format!(":{}", self.url.port()));
+                request.push_str(" HTTP/1.1\r\n");
+                request.push_str("Host: ");
+                request.push_str(self.url.host());
+                request.push_str(&format!(":{}", self.url.port()));
+                request.push_str("\r\n");
+            }
+        }
         request
     }
 }
@@ -84,6 +99,16 @@ impl Request {
 enum HttpMethod {
     Get,
     Post,
+    Connect,
+}
+impl HttpMethod {
+    fn to_str(&self) -> &'static str {
+        match self {
+            HttpMethod::Get => "GET",
+            HttpMethod::Post => "POST",
+            HttpMethod::Connect => "CONNECT",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -136,6 +161,15 @@ mod tests {
         assert_eq!(
             request,
             "POST /test HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\n\r\n"
+        )
+    }
+    #[test]
+    fn urlからconnectのrequestを作成できる() {
+        let url = Url::from_str("https://localhost/test").unwrap();
+        let request = RequestBuilder::new(url).connect().to_request();
+        assert_eq!(
+            request,
+            "CONNECT localhost:443 HTTP/1.1\r\nHost: localhost:443\r\n"
         )
     }
 }
