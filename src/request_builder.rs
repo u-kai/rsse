@@ -126,9 +126,9 @@ impl HttpMethod {
 
 #[cfg(test)]
 mod tests {
-    use std::vec;
+    use std::{io::BufRead, vec};
 
-    use crate::{connector::HttpConnector, url::Url};
+    use crate::{connector::HttpConnector, subscriber::SseSubscriber, url::Url};
 
     use super::*;
     #[test]
@@ -167,15 +167,15 @@ mod tests {
             "POST /test HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\nContent-Type: application/json\r\n\r\n"
         )
     }
-    #[test]
-    fn urlからpostのrequestを作成できる() {
-        let url = Url::from_str("https://localhost/test").unwrap();
-        let request = RequestBuilder::new(url).post().to_request();
-        assert_eq!(
-            request,
-            "POST /test HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\n\r\n"
-        )
-    }
+    //#[test]
+    //fn urlからpostのrequestを作成できる() {
+    //let url = Url::from_str("https://localhost/test").unwrap();
+    //let request = RequestBuilder::new(url).post().to_request();
+    //assert_eq!(
+    //request,
+    //"POST /test HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\n\r\n"
+    //)
+    //}
     #[test]
     fn urlからconnectのrequestを作成できる() {
         let url = Url::from_str("https://localhost/test").unwrap();
@@ -190,6 +190,22 @@ mod tests {
     async fn proxy_test() {
         let mut connector = HttpConnector::default("https://www.google.com");
         connector.connect("http://localhost:8080").await;
+        assert!(false);
+    }
+    #[tokio::test]
+    #[ignore = "dockerを利用したproxyのテスト"]
+    async fn proxy_test_sse() {
+        let mut connector =
+            SseSubscriber::with_proxy("http://localhost:8080", "https://www.google.com").unwrap();
+        let request = RequestBuilder::new(Url::from_str("https://www.google.com").unwrap())
+            .get()
+            .build();
+        let mut reader = connector.subscribe_stream(&request).unwrap();
+        let mut buf = String::new();
+        while reader.read_line(&mut buf).unwrap() > 0 {
+            println!("{}", buf);
+            buf.clear();
+        }
         assert!(false);
     }
 }

@@ -7,10 +7,8 @@ use std::{
     sync::Arc,
 };
 
-use rustls::{Certificate, ClientConfig, ClientConnection, ServerName};
+use rustls::{Certificate, ClientConfig, ClientConnection, ServerName, Stream, StreamOwned};
 use rustls_pemfile::{read_one, Item};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_rustls::TlsConnector;
 
 use crate::{request_builder::RequestBuilder, url::Url};
 
@@ -61,9 +59,12 @@ impl HttpConnector {
         let mut stream = tokio::net::TcpStream::connect(proxy_url.to_addr_str())
             .await
             .unwrap();
+        let mut stream = TcpStream::connect(proxy_url.to_addr_str()).unwrap();
         let mut buf = vec![0; 4096];
-        stream.write_all(request.bytes()).await.unwrap();
-        stream.read(&mut buf).await.unwrap();
+        //stream.write_all(request.bytes()).await.unwrap();
+        //stream.read(&mut buf).await.unwrap();
+        stream.write_all(request.bytes()).unwrap();
+        stream.read(&mut buf).unwrap();
 
         let mut root_store = rustls::RootCertStore::empty();
         root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
@@ -83,18 +84,19 @@ impl HttpConnector {
         let request = RequestBuilder::new(self.url.clone()).get().build();
         println!("{:#?}", request);
         let req = request.bytes();
-        let connector = TlsConnector::from(Arc::new(config));
-        //let tokio_stream = tokio::net::TcpStream::from_std(stream).unwrap();
-        let mut tls_stream = connector.connect(ip, stream).await.unwrap();
-        tls_stream.write_all(req).await.unwrap();
-        let mut res = vec![0; 4096];
-        let mut reader = tokio::io::BufReader::new(tls_stream);
-        //while tls_stream.read_buf(&mut res).await.unwrap() > 0 {
-        //println!("{}", String::from_utf8_lossy(&res));
-        //res.clear();
-        //}
 
-        println!("{}", String::from_utf8_lossy(&res));
+        //let connector = TlsConnector::from(Arc::new(config));
+        //let tokio_stream = tokio::net::TcpStream::from_std(stream).unwrap();
+        let mut client = ClientConnection::new(Arc::new(config), ip).unwrap();
+        let mut tls_stream = Stream::new(&mut client, &mut stream);
+        tls_stream.write_all(req).unwrap(); //.await.unwrap();
+        let mut res = String::new();
+        let mut reader = BufReader::new(tls_stream);
+        while reader.read_line(&mut res).unwrap() > 0 {
+            println!("{}", res);
+            res.clear();
+        }
+
         assert!(false);
     }
 }
