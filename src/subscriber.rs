@@ -11,6 +11,7 @@ use rustls::{Certificate, ClientConfig, ClientConnection, RootCertStore, Stream}
 use rustls_pemfile::{read_one, Item};
 
 use crate::{
+    debug,
     request_builder::{Request, RequestBuilder},
     url::Url,
 };
@@ -98,8 +99,9 @@ impl SseSubscriber {
         socket.write_all(request.bytes()).unwrap();
         let mut buf = vec![0; 4096];
         while socket.read(&mut buf).unwrap() > 0 {
-            let response = String::from_utf8(buf.clone()).unwrap();
-            if response.contains("200") {
+            let proxy_response = String::from_utf8(buf.clone()).unwrap();
+            debug!(proxy_response);
+            if proxy_response.contains("200") {
                 break;
             }
         }
@@ -135,6 +137,7 @@ impl SseSubscriber {
                 message: format!("error : {:#?}\n", e.to_string(),),
                 request: request.clone(),
             })?;
+        debug!(tls_stream);
         let reader = BufReader::new(tls_stream);
         Ok(reader)
     }

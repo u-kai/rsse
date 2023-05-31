@@ -4,6 +4,7 @@ use std::{
 };
 
 use crate::{
+    debug,
     request_builder::Request,
     response::{SseResponse, SseResponseError, SseResponseStore},
     ErrorHandler, EventHandler, SseHandlerError, SseResult,
@@ -51,6 +52,8 @@ where
                     );
                 }
             }
+            let response_line = line.as_str();
+            debug!(response_line);
             match response_store.evaluate_lines(line.as_str()) {
                 Ok(response) => {
                     if response.is_error() && read_len <= 5 {

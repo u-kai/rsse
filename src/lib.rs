@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 use event_handler::SseHandler;
 use request_builder::{Request, RequestBuilder};
@@ -38,6 +38,14 @@ where
     request_builder: RequestBuilder,
 }
 
+#[macro_export]
+macro_rules! debug {
+    ($args:ident) => {
+        if let Ok(_) = std::env::var("RUST_LOG") {
+            println!("{} = {:#?}", stringify!($args), $args)
+        }
+    };
+}
 impl<Event, Err, T> SseClient<Event, Err, T>
 where
     Event: EventHandler<T>,
@@ -88,6 +96,7 @@ where
     }
     pub fn handle_event(mut self) -> Result<SseResult<T>> {
         let request = self.request_builder.build();
+        debug!(request);
         let reader = self
             .subscriber
             .subscribe_stream(&request)
