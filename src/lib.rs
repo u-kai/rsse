@@ -72,6 +72,13 @@ where
             ..self
         }
     }
+    pub fn header(self,key:&str,value:&str) -> Self {
+        let request_builder = self.request_builder.header(key,value);
+        Self {
+            request_builder,
+            ..self
+        }
+    }
     pub fn json<S: serde::Serialize>(self, json: S) -> Self {
         let request_builder = self.request_builder.json(json);
         Self {
