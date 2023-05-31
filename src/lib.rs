@@ -72,8 +72,8 @@ where
             ..self
         }
     }
-    pub fn header(self,key:&str,value:&str) -> Self {
-        let request_builder = self.request_builder.header(key,value);
+    pub fn header(self, key: &str, value: &str) -> Self {
+        let request_builder = self.request_builder.header(key, value);
         Self {
             request_builder,
             ..self
@@ -118,6 +118,19 @@ pub enum SseClientError {
     SseHandlerError(SseHandlerError),
     SseSubscriberError(subscriber::SseSubscriberError),
 }
+impl Display for SseClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SseClientError::SseHandlerError(e) => {
+                write!(f, "SseClientError::SseHandlerError({})", e)
+            }
+            SseClientError::SseSubscriberError(e) => {
+                write!(f, "SseClientError::SseSubscriberError({})", e)
+            }
+        }
+    }
+}
+impl std::error::Error for SseClientError {}
 
 type Result<T> = std::result::Result<T, SseClientError>;
 
