@@ -142,3 +142,29 @@ impl SseSubscriber {
         Ok(reader)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::io::BufRead;
+
+    use super::*;
+    #[test]
+    #[ignore = "dockerを利用したproxyのテスト"]
+    fn proxy_test_sse() {
+        let mut connector =
+            SseSubscriber::with_proxy("http://localhost:8080", "https://www.google.com").unwrap();
+        let request = RequestBuilder::new(Url::from_str("https://www.google.com").unwrap())
+            .get()
+            .build();
+        let mut reader = connector.subscribe_stream(&request).unwrap();
+        let mut buf = String::new();
+        while reader.read_line(&mut buf).unwrap() > 0 {
+            if buf.contains("OK") {
+                assert!(true);
+                return;
+            }
+            buf.clear();
+        }
+        assert!(false);
+    }
+}

@@ -89,7 +89,6 @@ where
                 }
             }
         }
-        //Ok(SseResult::Finished)
         self.event_handler
             .finished()
             .map_err(|e| SseHandlerError::UserError {
