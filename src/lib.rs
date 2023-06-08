@@ -86,7 +86,18 @@ where
         Self { builder, ..self }
     }
     pub fn handle_event(self) -> Result<SseResult<T>> {
-        let mut subscriber = self.builder.build();
+        let mut subscriber = if let Some(proxy_url) = self.proxy_url {
+            self.builder
+                .connect_proxy(proxy_url.as_str())
+                .map_err(|e| {
+                    SseClientError::SseHandlerError(SseHandlerError::SubscriberConstructionError {
+                        message: format!("Failed to connect proxy: {}", e),
+                        url: proxy_url,
+                    })
+                })?
+        } else {
+            self.builder.build()
+        };
         let reader = subscriber
             .subscribe_stream()
             .map_err(|e| SseClientError::SseSubscriberError(e))?;
