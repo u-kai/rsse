@@ -56,6 +56,12 @@ impl SseResponseStore {
         Self { response: None }
     }
     pub fn evaluate_lines(&mut self, lines: &str) -> Result<&SseResponse> {
+        if lines.lines().count() == 0 {
+            return Err(SseResponseError::InvalidLine(
+                self.response.as_ref().unwrap().clone(),
+                lines.to_string(),
+            ));
+        }
         for line in lines.lines() {
             self.evaluate(line)?;
         }
