@@ -1,9 +1,8 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 use event_handler::SseHandler;
-use request_builder::{Request, RequestBuilder};
 use response::SseResponse;
-use subscriber::SseSubscriber;
+use subscriber::SubscriberBuilder;
 
 mod event_handler;
 mod request_builder;
@@ -32,56 +31,67 @@ where
     Event: EventHandler<T>,
     Err: ErrorHandler<T>,
 {
-    subscriber: SseSubscriber,
+    proxy_url: Option<String>,
+    builder: SubscriberBuilder,
     handler: SseHandler<Event, Err, T>,
-    request_builder: RequestBuilder,
 }
 
+#[macro_export]
+macro_rules! debug {
+    ($args:ident) => {
+        if let Ok(_) = std::env::var("RUST_LOG") {
+            println!("{} = {:#?}", stringify!($args), $args)
+        }
+    };
+}
 impl<Event, Err, T> SseClient<Event, Err, T>
 where
     Event: EventHandler<T>,
     Err: ErrorHandler<T>,
 {
     pub fn new(url: &str, event_handler: Event, error_handler: Err) -> Result<Self> {
-        let subscriber =
-            SseSubscriber::default(url).map_err(|e| SseClientError::SseSubscriberError(e))?;
+        let builder = SubscriberBuilder::new(url);
         let handler = event_handler::SseHandler::new(event_handler, error_handler);
-        let request_builder = RequestBuilder::new(url);
-        Ok(Self {
-            subscriber,
+        let mut this = Self {
+            builder,
             handler,
-            request_builder,
-        })
+            proxy_url: None,
+        };
+
+        match (std::env::var("HTTP_PROXY"), std::env::var("HTTPS_PROXY")) {
+            (Ok(http_proxy), _) => this.proxy_url = Some(http_proxy),
+            (_, Ok(https_proxy)) => this.proxy_url = Some(https_proxy),
+            _ => {}
+        };
+        Ok(this)
+    }
+    pub fn set_proxy_url(mut self, proxy_url: &str) -> Self {
+        self.proxy_url = Some(proxy_url.to_string());
+        self
     }
     pub fn bearer_auth(self, token: &str) -> Self {
-        let request_builder = self.request_builder.bearer_auth(token);
-        Self {
-            request_builder,
-            ..self
-        }
+        let builder = self.builder.bearer_auth(token);
+        Self { builder, ..self }
     }
     pub fn post(self) -> Self {
-        let request_builder = self.request_builder.post();
-        Self {
-            request_builder,
-            ..self
-        }
+        let builder = self.builder.post();
+        Self { builder, ..self }
+    }
+    pub fn header(self, key: &str, value: &str) -> Self {
+        let builder = self.builder.header(key, value);
+        Self { builder, ..self }
     }
     pub fn json<S: serde::Serialize>(self, json: S) -> Self {
-        let request_builder = self.request_builder.json(json);
-        Self {
-            request_builder,
-            ..self
-        }
+        let builder = self.builder.json(json);
+        Self { builder, ..self }
     }
-    pub fn handle_event(mut self) -> Result<SseResult<T>> {
-        let request = self.request_builder.build();
-        let reader = self
-            .subscriber
-            .subscribe_stream(&request)
+    pub fn handle_event(self) -> Result<SseResult<T>> {
+        let mut subscriber = self.builder.build();
+        let reader = subscriber
+            .subscribe_stream()
             .map_err(|e| SseClientError::SseSubscriberError(e))?;
         self.handler
-            .handle_event(reader, request)
+            .handle_event(reader)
             .map_err(|e| SseClientError::SseHandlerError(e))
     }
 }
@@ -106,6 +116,19 @@ pub enum SseClientError {
     SseHandlerError(SseHandlerError),
     SseSubscriberError(subscriber::SseSubscriberError),
 }
+impl Display for SseClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SseClientError::SseHandlerError(e) => {
+                write!(f, "SseClientError::SseHandlerError({})", e)
+            }
+            SseClientError::SseSubscriberError(e) => {
+                write!(f, "SseClientError::SseSubscriberError({})", e)
+            }
+        }
+    }
+}
+impl std::error::Error for SseClientError {}
 
 type Result<T> = std::result::Result<T, SseClientError>;
 
@@ -118,12 +141,10 @@ pub enum SseHandlerError {
     ReadLineError {
         message: String,
         read_line: String,
-        request: Request,
     },
     HttpResponseError {
         message: String,
         read_line: String,
-        request: Request,
         response: SseResponse,
     },
     SubscriberConstructionError {
@@ -132,17 +153,15 @@ pub enum SseHandlerError {
     },
     SubscribeRequestError {
         message: String,
-        request: Request,
     },
     SubscribeResponseError {
         message: String,
-        request: Request,
     },
     UserError {
         message: String,
     },
     NonCaughtRequestError {
-        request: Request,
+        message: String,
     },
     NonCaughtResponseError {
         message: String,
@@ -158,25 +177,25 @@ impl Display for SseHandlerError {
                     message, url
                 )
             }
-            Self::SubscribeRequestError { message, request } => {
+            Self::SubscribeRequestError { message } => {
                 write!(
                     f,
-                    "SseHandlerError::SubscribeRequestError{{message:{},request:{:?}}}",
-                    message, request
+                    "SseHandlerError::SubscribeRequestError{{message:{}}}",
+                    message,
                 )
             }
-            Self::SubscribeResponseError { message, request } => {
+            Self::SubscribeResponseError { message } => {
                 write!(
                     f,
-                    "SseHandlerError::SubscribeResponseError{{message:{},request:{:?}}}",
-                    message, request
+                    "SseHandlerError::SubscribeResponseError{{message:{}}}",
+                    message,
                 )
             }
-            Self::NonCaughtRequestError { request } => {
+            Self::NonCaughtRequestError { message } => {
                 write!(
                     f,
-                    "SseHandlerError::NonCaughtRequestError{{request:{:?}}}",
-                    request
+                    "SseHandlerError::NonCaughtRequestError{{message:{:?}}}",
+                    message
                 )
             }
             Self::NonCaughtResponseError { message } => {
@@ -186,15 +205,11 @@ impl Display for SseHandlerError {
                     message
                 )
             }
-            Self::ReadLineError {
-                read_line,
-                message,
-                request,
-            } => {
+            Self::ReadLineError { read_line, message } => {
                 write!(
                     f,
-                    "SseHandlerError::ReadLineError{{message:{},read_line:{},request:{:?}}}",
-                    message, read_line, request
+                    "SseHandlerError::ReadLineError{{message:{},read_line:{}}}",
+                    message, read_line,
                 )
             }
             Self::InvalidResponseLineError { message, line } => {
@@ -210,16 +225,178 @@ impl Display for SseHandlerError {
             Self::HttpResponseError {
                 message,
                 read_line,
-                request,
                 response,
             } => {
                 write!(
                     f,
-                    "SseHandlerError::HttpResponseError{{message:{},read_line:{},request:{:?},response:{:?}}}",
-                    message, read_line, request, response
+                    "SseHandlerError::HttpResponseError{{message:{},read_line:{},response:{:?}}}",
+                    message, read_line, response
                 )
             }
         }
     }
 }
 impl std::error::Error for SseHandlerError {}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::RefCell;
+
+    use super::*;
+    use crate::EventHandler;
+
+    #[test]
+    #[ignore = "requires a valid token"]
+    fn proxy_gpt_test() {
+        #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+        struct ChatRequest {
+            model: OpenAIModel,
+            messages: Vec<Message>,
+            stream: bool,
+        }
+
+        #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+        pub struct Message {
+            role: Role,
+            content: String,
+        }
+        #[derive(Debug, Clone, serde::Deserialize, PartialEq, Eq)]
+        pub enum Role {
+            User,
+            Assistant,
+        }
+        impl Role {
+            fn into_str(&self) -> &'static str {
+                match self {
+                    Self::User => "user",
+                    Self::Assistant => "assistant",
+                }
+            }
+        }
+        impl serde::Serialize for Role {
+            fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                let role: &str = self.into_str();
+                serializer.serialize_str(role)
+            }
+        }
+        #[derive(Debug, Clone, serde::Deserialize)]
+        pub enum OpenAIModel {
+            Gpt3Dot5Turbo,
+        }
+        impl serde::Serialize for OpenAIModel {
+            fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+            where
+                S: serde::ser::Serializer,
+            {
+                serializer.serialize_str(self.into_str())
+            }
+        }
+
+        impl OpenAIModel {
+            pub fn into_str(&self) -> &'static str {
+                match self {
+                    Self::Gpt3Dot5Turbo => "gpt-3.5-turbo",
+                }
+            }
+        }
+        impl Into<&'static str> for OpenAIModel {
+            fn into(self) -> &'static str {
+                self.into_str()
+            }
+        }
+        #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+        pub struct Chat {
+            pub choices: Vec<ChatChoices>,
+            pub created: usize,
+            pub id: String,
+            pub model: String,
+            pub object: String,
+        }
+        #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+        pub struct ChatChoices {
+            pub delta: ChatChoicesDelta,
+            pub finish_reason: serde_json::Value,
+            pub index: usize,
+        }
+
+        #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+        pub struct ChatChoicesDelta {
+            pub content: Option<String>,
+        }
+
+        struct Handler {}
+        impl EventHandler<()> for Handler {
+            type Err = std::io::Error;
+            fn handle(&self, event: &str) -> std::result::Result<SseResult<()>, Self::Err> {
+                let chat = serde_json::from_str::<Chat>(event);
+                match chat {
+                    Ok(chat) => {
+                        if let Some(choice) = chat.choices.first() {
+                            if let Some(content) = &choice.delta.content {
+                                println!("{}", content);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        if event == "[DONE]" {
+                            return Ok(SseResult::Finished(()));
+                        }
+                        println!("{:?}", e);
+                    }
+                }
+                Ok(SseResult::Continue)
+            }
+            fn finished(&self) -> std::result::Result<SseResult<()>, Self::Err> {
+                Ok(SseResult::Finished(()))
+            }
+        }
+
+        struct ErrHandler {
+            count: RefCell<usize>,
+        }
+        impl ErrorHandler<()> for ErrHandler {
+            type Err = std::io::Error;
+            fn catch(
+                &self,
+                error: SseHandlerError,
+            ) -> std::result::Result<SseResult<()>, Self::Err> {
+                println!("{:?}", error);
+                if *self.count.borrow_mut() + 1 > 3 {
+                    return Ok(SseResult::Finished(()));
+                }
+                println!("retry ");
+                *self.count.borrow_mut() += 1;
+                Ok(SseResult::Retry)
+            }
+        }
+
+        let url = "https://api.openai.com/v1/chat/completions";
+        let message = String::from("hello");
+        let result = SseClient::new(
+            url,
+            Handler {},
+            ErrHandler {
+                count: RefCell::new(0),
+            },
+        )
+        .unwrap()
+        .set_proxy_url("http://localhost:8080")
+        .bearer_auth(std::env::var("OPENAI_API_KEY").unwrap().as_str())
+        .post()
+        .json(ChatRequest {
+            stream: true,
+            model: OpenAIModel::Gpt3Dot5Turbo,
+            messages: vec![Message {
+                role: Role::User,
+                content: message,
+            }],
+        })
+        .handle_event()
+        .unwrap();
+        println!("{:#?}", result);
+        assert!(true);
+    }
+}

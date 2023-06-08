@@ -130,6 +130,7 @@ impl ErrorHandler<()> for ErrHandler {
 
 fn main() {
     let url = "https://api.openai.com/v1/chat/completions";
+    std::env::set_var("HTTP_PROXY", "http://localhost:8080");
     loop {
         let mut message = String::new();
         print!("{} > ", std::env::var("USER").unwrap_or_default());
