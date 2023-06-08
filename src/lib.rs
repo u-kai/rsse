@@ -1,9 +1,8 @@
 use std::fmt::{Debug, Display};
 
 use event_handler::SseHandler;
-use request_builder::{Request, RequestBuilder};
 use response::SseResponse;
-use subscriber::SseSubscriber;
+use subscriber::SubscriberBuilder;
 
 mod connector;
 mod event_handler;
@@ -33,9 +32,8 @@ where
     Event: EventHandler<T>,
     Err: ErrorHandler<T>,
 {
-    subscriber: SseSubscriber,
+    builder: SubscriberBuilder,
     handler: SseHandler<Event, Err, T>,
-    request_builder: RequestBuilder,
 }
 
 #[macro_export]
@@ -52,57 +50,33 @@ where
     Err: ErrorHandler<T>,
 {
     pub fn new(url: &str, event_handler: Event, error_handler: Err) -> Result<Self> {
-        let subscriber = if std::env::var("HTTP_PROXY").is_ok() {
-            SseSubscriber::with_proxy(std::env::var("HTTP_PROXY").unwrap().as_str(), url)
-                .map_err(|e| SseClientError::SseSubscriberError(e))?
-        } else {
-            SseSubscriber::default(url).map_err(|e| SseClientError::SseSubscriberError(e))?
-        };
+        let builder = SubscriberBuilder::new(url);
         let handler = event_handler::SseHandler::new(event_handler, error_handler);
-        let request_builder = RequestBuilder::new(url);
-        Ok(Self {
-            subscriber,
-            handler,
-            request_builder,
-        })
+        Ok(Self { builder, handler })
     }
     pub fn bearer_auth(self, token: &str) -> Self {
-        let request_builder = self.request_builder.bearer_auth(token);
-        Self {
-            request_builder,
-            ..self
-        }
+        let builder = self.builder.bearer_auth(token);
+        Self { builder, ..self }
     }
     pub fn post(self) -> Self {
-        let request_builder = self.request_builder.post();
-        Self {
-            request_builder,
-            ..self
-        }
+        let builder = self.builder.post();
+        Self { builder, ..self }
     }
     pub fn header(self, key: &str, value: &str) -> Self {
-        let request_builder = self.request_builder.header(key, value);
-        Self {
-            request_builder,
-            ..self
-        }
+        let builder = self.builder.header(key, value);
+        Self { builder, ..self }
     }
     pub fn json<S: serde::Serialize>(self, json: S) -> Self {
-        let request_builder = self.request_builder.json(json);
-        Self {
-            request_builder,
-            ..self
-        }
+        let builder = self.builder.json(json);
+        Self { builder, ..self }
     }
     pub fn handle_event(mut self) -> Result<SseResult<T>> {
-        let request = self.request_builder.build();
-        debug!(request);
-        let reader = self
-            .subscriber
-            .subscribe_stream(&request)
+        let mut subscriber = self.builder.build();
+        let reader = subscriber
+            .subscribe_stream()
             .map_err(|e| SseClientError::SseSubscriberError(e))?;
         self.handler
-            .handle_event(reader, request)
+            .handle_event(reader)
             .map_err(|e| SseClientError::SseHandlerError(e))
     }
 }
@@ -152,12 +126,10 @@ pub enum SseHandlerError {
     ReadLineError {
         message: String,
         read_line: String,
-        request: Request,
     },
     HttpResponseError {
         message: String,
         read_line: String,
-        request: Request,
         response: SseResponse,
     },
     SubscriberConstructionError {
@@ -166,17 +138,15 @@ pub enum SseHandlerError {
     },
     SubscribeRequestError {
         message: String,
-        request: Request,
     },
     SubscribeResponseError {
         message: String,
-        request: Request,
     },
     UserError {
         message: String,
     },
     NonCaughtRequestError {
-        request: Request,
+        message: String,
     },
     NonCaughtResponseError {
         message: String,
@@ -192,25 +162,25 @@ impl Display for SseHandlerError {
                     message, url
                 )
             }
-            Self::SubscribeRequestError { message, request } => {
+            Self::SubscribeRequestError { message } => {
                 write!(
                     f,
-                    "SseHandlerError::SubscribeRequestError{{message:{},request:{:?}}}",
-                    message, request
+                    "SseHandlerError::SubscribeRequestError{{message:{}}}",
+                    message,
                 )
             }
-            Self::SubscribeResponseError { message, request } => {
+            Self::SubscribeResponseError { message } => {
                 write!(
                     f,
-                    "SseHandlerError::SubscribeResponseError{{message:{},request:{:?}}}",
-                    message, request
+                    "SseHandlerError::SubscribeResponseError{{message:{}}}",
+                    message,
                 )
             }
-            Self::NonCaughtRequestError { request } => {
+            Self::NonCaughtRequestError { message } => {
                 write!(
                     f,
-                    "SseHandlerError::NonCaughtRequestError{{request:{:?}}}",
-                    request
+                    "SseHandlerError::NonCaughtRequestError{{message:{:?}}}",
+                    message
                 )
             }
             Self::NonCaughtResponseError { message } => {
@@ -220,15 +190,11 @@ impl Display for SseHandlerError {
                     message
                 )
             }
-            Self::ReadLineError {
-                read_line,
-                message,
-                request,
-            } => {
+            Self::ReadLineError { read_line, message } => {
                 write!(
                     f,
-                    "SseHandlerError::ReadLineError{{message:{},read_line:{},request:{:?}}}",
-                    message, read_line, request
+                    "SseHandlerError::ReadLineError{{message:{},read_line:{}}}",
+                    message, read_line,
                 )
             }
             Self::InvalidResponseLineError { message, line } => {
@@ -244,13 +210,12 @@ impl Display for SseHandlerError {
             Self::HttpResponseError {
                 message,
                 read_line,
-                request,
                 response,
             } => {
                 write!(
                     f,
-                    "SseHandlerError::HttpResponseError{{message:{},read_line:{},request:{:?},response:{:?}}}",
-                    message, read_line, request, response
+                    "SseHandlerError::HttpResponseError{{message:{},read_line:{},response:{:?}}}",
+                    message, read_line, response
                 )
             }
         }

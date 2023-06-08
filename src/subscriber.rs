@@ -18,10 +18,9 @@ use crate::{
 
 #[derive(Debug)]
 pub struct SseSubscriber {
-    url: Url,
-    client: Option<ClientConnection>,
-    root_store: RootCertStore,
+    client: ClientConnection,
     tcp_stream: TcpStream,
+    req: Request,
 }
 #[derive(Debug)]
 pub enum SseSubscriberError {
@@ -29,12 +28,16 @@ pub enum SseSubscriberError {
     ClientConnectionError(String),
     TcpStreamConnectionError(String),
     ReadLineError(String),
+    ProxyUrlError(String),
+    ProxyConnectionError(String),
     WriteAllError { message: String, request: Request },
 }
 impl Display for SseSubscriberError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ProxyConnectionError(e) => write!(f, "ProxyConnectionError: {}", e),
             Self::InvalidUrlError(e) => write!(f, "InvalidUrlError: {}", e),
+            Self::ProxyUrlError(e) => write!(f, "ProxyUrlError: {}", e),
             Self::ClientConnectionError(e) => write!(f, "ClientConnectionError: {}", e),
             Self::ReadLineError(e) => write!(f, "ReadLineError: {}", e),
             Self::TcpStreamConnectionError(e) => write!(f, "TcpStreamConnectionError: {}", e),
@@ -47,27 +50,34 @@ impl std::error::Error for SseSubscriberError {}
 type Result<T> = std::result::Result<T, SseSubscriberError>;
 
 impl SseSubscriber {
-    pub fn default(url: &str) -> Result<Self> {
-        let url =
-            Url::from_str(url).map_err(|e| SseSubscriberError::InvalidUrlError(e.to_string()))?;
-        let mut root_store = rustls::RootCertStore::empty();
-        root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
-            rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-                ta.subject,
-                ta.spki,
-                ta.name_constraints,
-            )
-        }));
-        let socket = TcpStream::connect(url.to_addr_str())
-            .map_err(|e| SseSubscriberError::TcpStreamConnectionError(e.to_string()))?;
-        Ok(Self {
-            url: url,
-            client: None,
-            root_store: root_store,
-            tcp_stream: socket,
-        })
+    pub fn subscribe_stream(&mut self) -> Result<BufReader<Stream<ClientConnection, TcpStream>>> {
+        let mut tls_stream = rustls::Stream::new(&mut self.client, &mut self.tcp_stream);
+        tls_stream
+            .write_all(self.req.bytes())
+            .map_err(|e| SseSubscriberError::WriteAllError {
+                message: format!("error : {:#?}\n", e.to_string(),),
+                request: self.req.clone(),
+            })?;
+        debug!(tls_stream);
+        let reader = BufReader::new(tls_stream);
+        Ok(reader)
     }
-    pub fn add_ca(&mut self, ca_path: impl AsRef<Path>) -> Result<()> {
+}
+
+#[derive(Debug)]
+pub struct SubscriberBuilder {
+    root_store: rustls::RootCertStore,
+    request_builder: RequestBuilder,
+}
+
+impl SubscriberBuilder {
+    pub fn new(url: &str) -> Self {
+        Self {
+            root_store: Self::default_ca(),
+            request_builder: RequestBuilder::new(url),
+        }
+    }
+    pub fn add_ca(mut self, ca_path: impl AsRef<Path>) -> Result<Self> {
         let file = File::open(ca_path)
             .map_err(|e| SseSubscriberError::ClientConnectionError(e.to_string()))?;
         let mut reader = BufReader::new(file);
@@ -78,9 +88,76 @@ impl SseSubscriber {
             }
             _ => println!("error"),
         };
-        Ok(())
+        Ok(self)
     }
-    pub fn with_proxy(proxy_url: &str, url: &str) -> Result<Self> {
+    pub fn get(mut self) -> Self {
+        self.request_builder = self.request_builder.get();
+        self
+    }
+    pub fn json<T: serde::Serialize>(mut self, s: T) -> Self {
+        self.request_builder = self.request_builder.json(s);
+        self
+    }
+    pub fn post(mut self) -> Self {
+        self.request_builder = self.request_builder.post();
+        self
+    }
+    pub fn header(mut self, key: &str, value: &str) -> Self {
+        self.request_builder = self.request_builder.header(key, value);
+        self
+    }
+    pub fn body(mut self, body: &str) -> Self {
+        self.request_builder = self.request_builder.json(body);
+        self
+    }
+    pub fn bearer_auth(mut self, token: &str) -> Self {
+        self.request_builder = self.request_builder.bearer_auth(token);
+        self
+    }
+    pub fn connect_proxy(mut self, proxy_url: &str) -> Result<SseSubscriber> {
+        let proxy_url = Url::from_str(proxy_url)
+            .map_err(|e| SseSubscriberError::InvalidUrlError(e.to_string()))?;
+
+        // CONNECT method
+        let request = self.request_builder.connect_request();
+        // socket for connect proxy
+        let mut socket = TcpStream::connect(proxy_url.to_addr_str())
+            .map_err(|e| SseSubscriberError::TcpStreamConnectionError(e.to_string()))?;
+        // connect to proxy
+        socket.write_all(request.bytes()).unwrap();
+        let mut buf = vec![0; 4096];
+        let request = self.request_builder.build();
+        let url = request.url();
+        while socket.read(&mut buf).unwrap() > 0 {
+            let proxy_response = String::from_utf8(buf.clone()).unwrap();
+            debug!(proxy_response);
+            if proxy_response.contains("Established") {
+                let client = Self::make_client(self.root_store, url);
+                return Ok(SseSubscriber {
+                    client,
+                    tcp_stream: socket,
+                    req: request,
+                });
+            }
+        }
+        Err(SseSubscriberError::ProxyConnectionError(
+            "proxy connection error".to_string(),
+        ))
+    }
+
+    pub fn build(self) -> SseSubscriber {
+        let request = self.request_builder.build();
+        let client = Self::make_client(self.root_store, request.url());
+        let tcp_stream = TcpStream::connect(request.url().to_addr_str())
+            .map_err(|e| SseSubscriberError::TcpStreamConnectionError(e.to_string()))
+            .unwrap();
+        SseSubscriber {
+            client,
+            tcp_stream,
+            req: request,
+        }
+    }
+    fn default_ca() -> rustls::RootCertStore {
         let mut root_store = rustls::RootCertStore::empty();
         root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
             rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
@@ -89,57 +166,15 @@ impl SseSubscriber {
                 ta.name_constraints,
             )
         }));
-        let url =
-            Url::from_str(url).map_err(|e| SseSubscriberError::InvalidUrlError(e.to_string()))?;
-        let request = RequestBuilder::new(url.clone()).connect().build();
-        let proxy_url = Url::from_str(proxy_url)
-            .map_err(|e| SseSubscriberError::InvalidUrlError(e.to_string()))?;
-        let mut socket = TcpStream::connect(proxy_url.to_addr_str())
-            .map_err(|e| SseSubscriberError::TcpStreamConnectionError(e.to_string()))?;
-        socket.write_all(request.bytes()).unwrap();
-        let mut buf = vec![0; 4096];
-        while socket.read(&mut buf).unwrap() > 0 {
-            let proxy_response = String::from_utf8(buf.clone()).unwrap();
-            debug!(proxy_response);
-            if proxy_response.contains("200") {
-                break;
-            }
-        }
-        Ok(Self {
-            url: url,
-            client: None,
-            root_store: root_store,
-            tcp_stream: socket,
-        })
+        root_store
     }
-    fn set_client(&mut self) {
-        let ip = self.url.host().try_into().unwrap();
+    fn make_client(root_store: RootCertStore, url: &Url) -> ClientConnection {
+        let ip = url.host().try_into().unwrap();
         let config = ClientConfig::builder()
             .with_safe_defaults()
-            .with_root_certificates(self.root_store.clone())
+            .with_root_certificates(root_store.clone())
             .with_no_client_auth();
-        self.client = Some(ClientConnection::new(Arc::new(config), ip).unwrap());
-    }
-    pub fn subscribe_stream<'a>(
-        &'a mut self,
-        request: &Request,
-    ) -> Result<BufReader<Stream<'a, ClientConnection, TcpStream>>> {
-        if let Ok(cert) = std::env::var("CA_BUNDLE") {
-            self.add_ca(cert)?;
-        }
-        self.set_client();
-        let req = request.bytes();
-        let mut tls_stream =
-            rustls::Stream::new(self.client.as_mut().unwrap(), &mut self.tcp_stream);
-        tls_stream
-            .write_all(req)
-            .map_err(|e| SseSubscriberError::WriteAllError {
-                message: format!("error : {:#?}\n", e.to_string(),),
-                request: request.clone(),
-            })?;
-        debug!(tls_stream);
-        let reader = BufReader::new(tls_stream);
-        Ok(reader)
+        ClientConnection::new(Arc::new(config), ip).unwrap()
     }
 }
 
@@ -150,13 +185,12 @@ mod tests {
     use super::*;
     #[test]
     #[ignore = "dockerを利用したproxyのテスト"]
-    fn proxy_test_sse() {
-        let mut connector =
-            SseSubscriber::with_proxy("http://localhost:8080", "https://www.google.com").unwrap();
-        let request = RequestBuilder::new(Url::from_str("https://www.google.com").unwrap())
-            .get()
-            .build();
-        let mut reader = connector.subscribe_stream(&request).unwrap();
+    fn test_connection_proxy() {
+        let mut subscriber = SubscriberBuilder::new("https://www.google.com")
+            .connect_proxy("http://localhost:8080")
+            .unwrap();
+
+        let mut reader = subscriber.subscribe_stream().unwrap();
         let mut buf = String::new();
         while reader.read_line(&mut buf).unwrap() > 0 {
             if buf.contains("OK") {

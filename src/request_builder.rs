@@ -30,6 +30,15 @@ impl RequestBuilder {
         self.method = HttpMethod::Connect;
         self
     }
+    pub fn connect_request(&self) -> Request {
+        Self {
+            url: self.url.clone(),
+            method: HttpMethod::Connect,
+            headers: self.headers.clone(),
+            body: String::new(),
+        }
+        .build()
+    }
     pub fn header(mut self, key: &str, value: &str) -> Self {
         self.headers.insert(key.to_string(), value.to_string());
         self
@@ -58,7 +67,10 @@ impl RequestBuilder {
         self
     }
     pub fn build(self) -> Request {
-        Request(self.to_request())
+        Request {
+            value: self.to_request(),
+            url: self.url,
+        }
     }
     fn to_request(&self) -> String {
         let mut request = String::new();
@@ -101,10 +113,16 @@ impl RequestBuilder {
     }
 }
 #[derive(Debug, Clone)]
-pub struct Request(String);
+pub struct Request {
+    value: String,
+    url: Url,
+}
 impl Request {
     pub fn bytes(&self) -> &[u8] {
-        self.0.as_bytes()
+        self.value.as_bytes()
+    }
+    pub fn url(&self) -> &Url {
+        &self.url
     }
 }
 
@@ -126,9 +144,9 @@ impl HttpMethod {
 
 #[cfg(test)]
 mod tests {
-    use std::{io::BufRead, vec};
+    use std::vec;
 
-    use crate::{connector::HttpConnector, subscriber::SseSubscriber, url::Url};
+    use crate::url::Url;
 
     use super::*;
     #[test]
@@ -167,15 +185,6 @@ mod tests {
             "POST /test HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\nContent-Type: application/json\r\n\r\n"
         )
     }
-    //#[test]
-    //fn urlからpostのrequestを作成できる() {
-    //let url = Url::from_str("https://localhost/test").unwrap();
-    //let request = RequestBuilder::new(url).post().to_request();
-    //assert_eq!(
-    //request,
-    //"POST /test HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\n\r\n"
-    //)
-    //}
     #[test]
     fn urlからconnectのrequestを作成できる() {
         let url = Url::from_str("https://localhost/test").unwrap();
