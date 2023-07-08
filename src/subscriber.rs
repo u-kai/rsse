@@ -106,15 +106,11 @@ impl SubscriberBuilder {
         self.request_builder = self.request_builder.header(key, value);
         self
     }
-    pub fn body(mut self, body: &str) -> Self {
-        self.request_builder = self.request_builder.json(body);
-        self
-    }
     pub fn bearer_auth(mut self, token: &str) -> Self {
         self.request_builder = self.request_builder.bearer_auth(token);
         self
     }
-    pub fn connect_proxy(mut self, proxy_url: &str) -> Result<SseSubscriber> {
+    pub fn connect_proxy(self, proxy_url: &str) -> Result<SseSubscriber> {
         let proxy_url = Url::from_str(proxy_url)
             .map_err(|e| SseSubscriberError::InvalidUrlError(e.to_string()))?;
 
