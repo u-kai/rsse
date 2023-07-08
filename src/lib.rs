@@ -69,6 +69,15 @@ where
         self.proxy_url = Some(proxy_url.to_string());
         self
     }
+    pub fn add_ca(mut self, ca_path: &str) -> Result<Self> {
+        self.builder = self.builder.add_ca(ca_path).map_err(|e| {
+            SseClientError::SseHandlerError(SseHandlerError::InvalidCaError {
+                message: format!("Failed to add ca: {}", e),
+                ca_path: ca_path.to_string(),
+            })
+        })?;
+        Ok(self)
+    }
     pub fn bearer_auth(self, token: &str) -> Self {
         let builder = self.builder.bearer_auth(token);
         Self { builder, ..self }
@@ -79,6 +88,10 @@ where
     }
     pub fn header(self, key: &str, value: &str) -> Self {
         let builder = self.builder.header(key, value);
+        Self { builder, ..self }
+    }
+    pub fn get(self) -> Self {
+        let builder = self.builder.get();
         Self { builder, ..self }
     }
     pub fn json<S: serde::Serialize>(self, json: S) -> Self {
@@ -145,6 +158,10 @@ type Result<T> = std::result::Result<T, SseClientError>;
 
 #[derive(Debug)]
 pub enum SseHandlerError {
+    InvalidCaError {
+        message: String,
+        ca_path: String,
+    },
     InvalidResponseLineError {
         message: String,
         line: String,
@@ -181,6 +198,13 @@ pub enum SseHandlerError {
 impl Display for SseHandlerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            SseHandlerError::InvalidCaError { message, ca_path } => {
+                write!(
+                    f,
+                    "SseHandlerError::InvalidCaError{{message:{},ca_path:{}}}",
+                    message, ca_path
+                )
+            }
             SseHandlerError::SubscriberConstructionError { message, url } => {
                 write!(
                     f,

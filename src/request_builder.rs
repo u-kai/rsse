@@ -26,10 +26,6 @@ impl RequestBuilder {
         self.method = HttpMethod::Post;
         self
     }
-    pub fn connect(mut self) -> Self {
-        self.method = HttpMethod::Connect;
-        self
-    }
     pub fn connect_request(&self) -> Request {
         Self {
             url: self.url.clone(),
@@ -183,15 +179,6 @@ mod tests {
         assert_eq!(
             request,
             "POST /test HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\nContent-Type: application/json\r\n\r\n"
-        )
-    }
-    #[test]
-    fn urlからconnectのrequestを作成できる() {
-        let url = Url::from_str("https://localhost/test").unwrap();
-        let request = RequestBuilder::new(url).connect().to_request();
-        assert_eq!(
-            request,
-            "CONNECT localhost:443 HTTP/1.1\r\nHost: localhost:443\r\n\r\n"
         )
     }
 }
