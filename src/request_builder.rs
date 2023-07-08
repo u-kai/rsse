@@ -191,7 +191,7 @@ mod tests {
         let request = RequestBuilder::new(url).connect().to_request();
         assert_eq!(
             request,
-            "CONNECT localhost:443 HTTP/1.1\r\nHost: localhost:443\r\nConnection: keep-alive\r\n\r\n"
+            "CONNECT localhost:443 HTTP/1.1\r\nHost: localhost:443\r\n\r\n"
         )
     }
 }
