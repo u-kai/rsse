@@ -1,6 +1,19 @@
 use std::collections::BTreeMap;
 
 use crate::url::Url;
+#[derive(Debug, Clone)]
+pub struct Request {
+    value: String,
+    url: Url,
+}
+impl Request {
+    pub fn bytes(&self) -> &[u8] {
+        self.value.as_bytes()
+    }
+    pub fn url(&self) -> &Url {
+        &self.url
+    }
+}
 
 #[derive(Debug)]
 pub struct RequestBuilder {
@@ -106,19 +119,6 @@ impl RequestBuilder {
             }
         }
         request
-    }
-}
-#[derive(Debug, Clone)]
-pub struct Request {
-    value: String,
-    url: Url,
-}
-impl Request {
-    pub fn bytes(&self) -> &[u8] {
-        self.value.as_bytes()
-    }
-    pub fn url(&self) -> &Url {
-        &self.url
     }
 }
 
