@@ -14,7 +14,7 @@ impl<C: SseConnection, T: SseConnector<Connection = C>> SseSubscriber<C, T> {
         Self { connector }
     }
     fn subscribe_mut(&mut self, req: &Request, handler: &mut impl SseMutHandler) -> Result<()> {
-        let mut connection = self
+        let connection = self
             .connector
             .connect(req)
             .map_err(SseSubscribeError::from)?;
@@ -64,8 +64,25 @@ mod tests {
     use crate::{request::RequestBuilder, sse::connector::fakes::FakeSseConnector};
 
     use super::*;
+    //#[test]
+    //fn sse_のhttp接続に失敗する() {
+    //let mut connector = FakeSseConnector::new();
+    //connector.set_http_failure_sse(400);
+    //let mut handler = MockHandler::new();
+    //let mut sut = SseSubscriber::new(connector);
+    //let request = RequestBuilder::new("https://www.fake").get().build();
+
+    //let result = sut.subscribe_mut(&request, &mut handler);
+
+    //let Err(result) = result else {
+    //panic!("expected Err, but got Ok");
+    //};
+    //assert!(result);
+    //assert_eq!(sut.connector.connected_time(), 1);
+    //assert_eq!(handler.called_time(), 0);
+    //}
     #[test]
-    fn subscribeしてsseのコネクションを作成する() {
+    fn sseのデータを捕捉する() {
         let mut connector = FakeSseConnector::new();
         let response = "hello world";
         connector.set_success_sse(response);
@@ -74,7 +91,6 @@ mod tests {
         let request = RequestBuilder::new("https://www.fake").get().build();
 
         sut.subscribe_mut(&request, &mut handler).unwrap();
-
         assert_eq!(sut.connector.connected_time(), 1);
         assert_eq!(handler.called_time(), response.len());
     }
