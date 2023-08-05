@@ -5,6 +5,7 @@ use response::SseResponse;
 use subscriber::SubscriberBuilder;
 
 mod event_handler;
+mod http;
 mod request;
 mod response;
 mod sse;

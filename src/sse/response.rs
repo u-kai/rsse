@@ -1,6 +1,9 @@
+use crate::http::HttpStatusLine;
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum SseResponse {
     Event(String),
+    HttpStatusLine(HttpStatusLine),
 }
 
 impl SseResponse {
@@ -11,7 +14,18 @@ impl SseResponse {
 
 #[cfg(test)]
 mod tests {
+    use crate::http::{HttpStatusCode, HttpStatusLine, HttpVersion};
+
     use super::*;
+    #[test]
+    fn http_status_lineの場合() {
+        let ok_data = "HTTP/1.1 200 OK\n";
+
+        let sut = SseResponse::from_line(ok_data);
+
+        let expected = HttpStatusLine::new(HttpVersion::V1_1, HttpStatusCode::OK);
+        assert_eq!(SseResponse::HttpStatusLine(expected), sut);
+    }
     #[test]
     fn sse_のデータの場合() {
         let sse_data = "data: hello world\n\n";
