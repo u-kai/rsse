@@ -1,84 +1,69 @@
 use crate::request::Request;
 
-type Result<T> = std::result::Result<T, String>;
-trait SseConnection {
-    fn consume(&mut self) -> Result<Option<String>>;
-}
-trait SseConnector {
-    type Connection: SseConnection;
-    fn connect(&mut self, req: &Request) -> Result<Self::Connection>;
-}
+use super::connector::{SseConnection, SseConnectionError, SseConnector, SseResponse};
+
+pub type Result<T> = std::result::Result<T, SseSubscribeError>;
 trait SseMutHandler {
     fn handle(&mut self, buf: &str);
 }
-struct Subscriber<C: SseConnection, T: SseConnector<Connection = C>> {
+struct SseSubscriber<C: SseConnection, T: SseConnector<Connection = C>> {
     connector: T,
 }
-impl<C: SseConnection, T: SseConnector<Connection = C>> Subscriber<C, T> {
+impl<C: SseConnection, T: SseConnector<Connection = C>> SseSubscriber<C, T> {
     fn new(connector: T) -> Self {
         Self { connector }
     }
     fn subscribe_mut(&mut self, req: &Request, handler: &mut impl SseMutHandler) -> Result<()> {
-        let mut connection = self.connector.connect(req)?;
+        let mut connection = self
+            .connector
+            .connect(req)
+            .map_err(SseSubscribeError::from)?;
         loop {
-            match connection.consume()? {
-                Some(buf) => handler.handle(&buf),
-                None => return Ok(()),
+            match connection.consume() {
+                Ok(res) => match res {
+                    SseResponse::Data(data) => {
+                        handler.handle(data.as_str());
+                    }
+                    SseResponse::Done => {
+                        return Ok(());
+                    }
+                },
+                Err(e) => {
+                    return Err(SseSubscribeError::from(e));
+                }
             }
         }
     }
 }
 
+#[derive(Debug)]
+pub struct SseSubscribeError {
+    message: String,
+}
+impl SseSubscribeError {
+    pub fn new(message: &str) -> Self {
+        Self {
+            message: message.to_string(),
+        }
+    }
+}
+impl std::fmt::Display for SseSubscribeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "SseSubscribeError: {}", self.message)
+    }
+}
+impl std::error::Error for SseSubscribeError {}
+impl From<SseConnectionError> for SseSubscribeError {
+    fn from(err: SseConnectionError) -> Self {
+        Self::new(&err.to_string())
+    }
+}
 #[cfg(test)]
 mod tests {
-    use std::io::BufRead;
 
-    use crate::request::RequestBuilder;
+    use crate::{request::RequestBuilder, sse::connector::fakes::FakeSseConnector};
 
     use super::*;
-    struct FakeSseConnector {
-        response: String,
-        called_time: usize,
-    }
-    impl FakeSseConnector {
-        fn new() -> Self {
-            Self {
-                response: String::new(),
-                called_time: 0,
-            }
-        }
-        fn set_success_sse(&mut self, response: &str) {
-            self.response = response.to_string();
-        }
-        fn connected_time(&self) -> usize {
-            self.called_time
-        }
-    }
-    struct FakeSseConnection {
-        index: usize,
-        response: String,
-    }
-    impl SseConnection for FakeSseConnection {
-        fn consume(&mut self) -> Result<Option<String>> {
-            let c = self
-                .response
-                .get(self.index..self.index + 1)
-                .map(String::from);
-            self.index += 1;
-            println!("{:?}", c);
-            Ok(c)
-        }
-    }
-    impl SseConnector for FakeSseConnector {
-        type Connection = FakeSseConnection;
-        fn connect(&mut self, _req: &Request) -> Result<FakeSseConnection> {
-            self.called_time += 1;
-            Ok(FakeSseConnection {
-                index: 0,
-                response: self.response.clone(),
-            })
-        }
-    }
     struct MockHandler {
         called: usize,
     }
@@ -101,7 +86,7 @@ mod tests {
         let response = "hello world";
         connector.set_success_sse(response);
         let mut handler = MockHandler::new();
-        let mut sut = Subscriber::new(connector);
+        let mut sut = SseSubscriber::new(connector);
         let request = RequestBuilder::new("https://www.fake").get().build();
 
         sut.subscribe_mut(&request, &mut handler).unwrap();
