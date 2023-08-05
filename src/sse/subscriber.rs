@@ -64,6 +64,20 @@ mod tests {
     use crate::{request::RequestBuilder, sse::connector::fakes::FakeSseConnector};
 
     use super::*;
+    #[test]
+    fn subscribeしてsseのコネクションを作成する() {
+        let mut connector = FakeSseConnector::new();
+        let response = "hello world";
+        connector.set_success_sse(response);
+        let mut handler = MockHandler::new();
+        let mut sut = SseSubscriber::new(connector);
+        let request = RequestBuilder::new("https://www.fake").get().build();
+
+        sut.subscribe_mut(&request, &mut handler).unwrap();
+
+        assert_eq!(sut.connector.connected_time(), 1);
+        assert_eq!(handler.called_time(), response.len());
+    }
     struct MockHandler {
         called: usize,
     }
@@ -79,19 +93,5 @@ mod tests {
         fn handle(&mut self, _message: &str) {
             self.called += 1;
         }
-    }
-    #[test]
-    fn subscribeしてsseのコネクションを作成する() {
-        let mut connector = FakeSseConnector::new();
-        let response = "hello world";
-        connector.set_success_sse(response);
-        let mut handler = MockHandler::new();
-        let mut sut = SseSubscriber::new(connector);
-        let request = RequestBuilder::new("https://www.fake").get().build();
-
-        sut.subscribe_mut(&request, &mut handler).unwrap();
-
-        assert_eq!(sut.connector.connected_time(), 1);
-        assert_eq!(handler.called_time(), response.len());
     }
 }

@@ -12,7 +12,7 @@ pub trait SseConnection {
 }
 pub trait SseConnector {
     type Connection: SseConnection;
-    fn connect(&mut self, req: &Request) -> Result<Self::Connection>;
+    fn connect(&mut self, req: &Request) -> Result<&mut Self::Connection>;
 }
 
 #[derive(Debug)]
@@ -38,18 +38,21 @@ impl std::error::Error for SseConnectionError {}
 pub(crate) mod fakes {
     use super::*;
     pub struct FakeSseConnector {
-        response: String,
         called_time: usize,
+        connection: FakeSseConnection,
     }
     impl FakeSseConnector {
         pub fn new() -> Self {
             Self {
-                response: String::new(),
                 called_time: 0,
+                connection: FakeSseConnection {
+                    index: 0,
+                    response: String::new(),
+                },
             }
         }
         pub fn set_success_sse(&mut self, response: &str) {
-            self.response = response.to_string();
+            self.connection.response = response.to_string();
         }
         pub fn connected_time(&self) -> usize {
             self.called_time
@@ -74,12 +77,9 @@ pub(crate) mod fakes {
     }
     impl SseConnector for FakeSseConnector {
         type Connection = FakeSseConnection;
-        fn connect(&mut self, _req: &Request) -> Result<FakeSseConnection> {
+        fn connect(&mut self, _req: &Request) -> Result<&mut FakeSseConnection> {
             self.called_time += 1;
-            Ok(FakeSseConnection {
-                index: 0,
-                response: self.response.clone(),
-            })
+            Ok(&mut self.connection)
         }
     }
 }
