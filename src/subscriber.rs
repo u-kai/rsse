@@ -12,7 +12,7 @@ use rustls_pemfile::{read_one, Item};
 
 use crate::{
     debug,
-    request_builder::{Request, RequestBuilder},
+    request::{Request, RequestBuilder},
     url::Url,
 };
 

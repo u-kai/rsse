@@ -5,9 +5,8 @@ use response::SseResponse;
 use subscriber::SubscriberBuilder;
 
 mod event_handler;
-mod request_builder;
+mod request;
 mod response;
-mod sse;
 mod subscriber;
 mod url;
 
