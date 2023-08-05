@@ -3,12 +3,16 @@ use std::fmt::Display;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HttpStatusLineError {
     InvalidFormat(String),
+    InvalidHttpVersion(String),
 }
 impl Display for HttpStatusLineError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             HttpStatusLineError::InvalidFormat(line) => {
                 write!(f, "Invalid format: {}", line)
+            }
+            HttpStatusLineError::InvalidHttpVersion(version) => {
+                write!(f, "Invalid http version: {}", version)
             }
         }
     }
@@ -32,7 +36,7 @@ impl HttpStatusLine {
             return Err(HttpStatusLineError::InvalidFormat(line.to_string()));
         };
         let Some(version) = HttpVersion::from_str(version) else {
-            return Err(HttpStatusLineError::InvalidFormat(line.to_string()));
+            return Err(HttpStatusLineError::InvalidHttpVersion(line.to_string()));
         };
         let Some(status_code) = HttpStatusCode::from_num_str(status_num) else {
             return Err(HttpStatusLineError::InvalidFormat(line.to_string()));
@@ -367,6 +371,15 @@ impl HttpStatusCode {
 mod tests {
     use super::*;
     #[test]
+    fn status_lineの文字列から構造体を生成可能() {
+        let status_line = "HTTP/1.1 200 OK";
+        let sut = HttpStatusLine::from_str(status_line).unwrap();
+
+        assert_eq!(sut.version(), HttpVersion::V1_1);
+        assert_eq!(sut.status_code(), HttpStatusCode::OK);
+        assert_eq!(sut.to_string(), status_line);
+    }
+    #[test]
     fn 改行文字があるstatus_lineの文字列から構造体を生成可能() {
         let status_line = "HTTP/1.1 200 OK\n\r";
         let sut = HttpStatusLine::from_str(status_line).unwrap();
@@ -376,12 +389,27 @@ mod tests {
         assert_eq!(sut.to_string(), "HTTP/1.1 200 OK");
     }
     #[test]
-    fn status_lineの文字列から構造体を生成可能() {
-        let status_line = "HTTP/1.1 200 OK";
-        let sut = HttpStatusLine::from_str(status_line).unwrap();
+    fn 不正な文字列の場合はエラー() {
+        let invalid = "HTTP/1.1 200OK";
 
-        assert_eq!(sut.version(), HttpVersion::V1_1);
-        assert_eq!(sut.status_code(), HttpStatusCode::OK);
-        assert_eq!(sut.to_string(), status_line);
+        let sut = HttpStatusLine::from_str(invalid);
+
+        assert!(sut.is_err());
+        assert_eq!(
+            Err(HttpStatusLineError::InvalidFormat(invalid.to_string())),
+            sut
+        );
+    }
+    #[test]
+    fn 存在しないhttp_versionの文字列の場合はエラー() {
+        let invalid = "HTTP/1.2 200 OK";
+
+        let sut = HttpStatusLine::from_str(invalid);
+
+        assert!(sut.is_err());
+        assert_eq!(
+            Err(HttpStatusLineError::InvalidHttpVersion(invalid.to_string())),
+            sut
+        );
     }
 }
