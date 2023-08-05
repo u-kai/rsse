@@ -8,6 +8,9 @@ pub enum SseResponse {
 
 impl SseResponse {
     pub fn from_line(line: &str) -> Self {
+        if let Ok(status_line) = HttpStatusLine::from_str(line) {
+            return Self::HttpStatusLine(status_line);
+        }
         Self::Event(line[6..].to_string().trim_end().to_string())
     }
 }
