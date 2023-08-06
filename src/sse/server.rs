@@ -1,0 +1,55 @@
+use std::{
+    io::{BufRead, Write},
+    net::TcpListener,
+};
+
+pub struct SseServer {
+    addr: String,
+    responses: Vec<String>,
+}
+impl SseServer {
+    pub fn new(addr: &str) -> Self {
+        Self {
+            addr: addr.to_string(),
+            responses: Vec::new(),
+        }
+    }
+    pub fn add_response(&mut self, response: &str) {
+        self.responses.push(response.to_string());
+    }
+    pub fn start(&self) -> Result<(), std::io::Error> {
+        let listener = TcpListener::bind(self.addr.as_str())?;
+        for stream in listener.incoming() {
+            let stream = stream?;
+            self.handle_connection(stream)?;
+        }
+        Ok(())
+    }
+    pub fn handle_connection(&self, mut stream: std::net::TcpStream) -> Result<(), std::io::Error> {
+        let mut reader = std::io::BufReader::new(&mut stream);
+        let mut line = String::new();
+        while let Ok(size) = reader.read_line(&mut line) {
+            if !size > 0 {
+                break;
+            }
+            println!("req : {}", line);
+        }
+        let mut writer = std::io::BufWriter::new(&mut stream);
+        writer.write_all(b"HTTP/1.1 200 OK\r\n")?;
+        writer.write_all(b"Content-Type: text/event-stream\r\n")?;
+        writer.write_all(b"\r\n")?;
+        for s in &self.responses {
+            writer.write_all(Self::make_sse_data(s).as_bytes())?;
+            writer.flush()?;
+        }
+        Ok(())
+    }
+    fn make_sse_data(s: &str) -> String {
+        format!("data: {}\r\n", s)
+    }
+}
+impl Default for SseServer {
+    fn default() -> Self {
+        Self::new("localhost:8080")
+    }
+}

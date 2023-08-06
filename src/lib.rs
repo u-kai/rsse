@@ -12,6 +12,7 @@ mod sse;
 mod subscriber;
 mod url;
 
+pub type SseServer = sse::server::SseServer;
 #[derive(Debug, Clone, Copy)]
 pub enum SseResult<T> {
     Finished(T),

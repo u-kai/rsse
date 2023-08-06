@@ -6,18 +6,14 @@ use crate::{
 };
 
 use super::response::SseResponse;
-
 pub type Result<T> = std::result::Result<T, SseConnectionError>;
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum ConnectedSseResponse {
-    Progress(SseResponse),
-    Done,
+pub trait SseConnector<S: Socket> {
+    fn connect(&mut self, req: &Request) -> Result<&mut SseConnection<S>>;
 }
 
 pub trait Socket {
     fn read_line(&mut self) -> std::result::Result<Option<String>, std::io::Error>;
-    fn write(&mut self, data: &[u8]) -> std::result::Result<(), std::io::Error>;
 }
 pub struct SseConnection<S: Socket> {
     conn: S,
@@ -62,8 +58,10 @@ impl<S: Socket> SseConnection<S> {
         SseConnectionError::HttpError(HttpResponse::new(http_status, header, body))
     }
 }
-pub trait SseConnector<S: Socket> {
-    fn connect(&mut self, req: &Request) -> Result<&mut SseConnection<S>>;
+#[derive(Debug, PartialEq, Clone)]
+pub enum ConnectedSseResponse {
+    Progress(SseResponse),
+    Done,
 }
 
 #[derive(Debug)]
@@ -191,8 +189,8 @@ pub(crate) mod fakes {
             }
             Ok(Some(self.responses.remove(0)))
         }
-        fn write(&mut self, _data: &[u8]) -> std::result::Result<(), std::io::Error> {
-            Ok(())
-        }
+        //fn write(&mut self, _data: &[u8]) -> std::result::Result<(), std::io::Error> {
+        //Ok(())
+        //}
     }
 }
