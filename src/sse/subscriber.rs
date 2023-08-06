@@ -6,6 +6,9 @@ use super::{
 };
 
 pub type Result<T> = std::result::Result<T, SseSubscribeError>;
+pub trait SseHandler {
+    fn handle(&self, res: SseResponse);
+}
 pub trait SseMutHandler {
     fn handle(&mut self, res: SseResponse);
 }
@@ -18,6 +21,23 @@ impl<S: Socket, T: SseConnector<S>> SseSubscriber<S, T> {
         Self {
             connector,
             _phantom: std::marker::PhantomData,
+        }
+    }
+    pub fn subscribe(&mut self, req: &Request, handler: &impl SseHandler) -> Result<()> {
+        let connection: &mut SseConnection<S> = self
+            .connector
+            .connect(req)
+            .map_err(SseSubscribeError::from)?;
+        loop {
+            let res = connection.consume().map_err(SseSubscribeError::from)?;
+            match res {
+                ConnectedSseResponse::Progress(sse_response) => {
+                    handler.handle(sse_response);
+                }
+                ConnectedSseResponse::Done => {
+                    return Ok(());
+                }
+            }
         }
     }
     pub fn subscribe_mut(&mut self, req: &Request, handler: &mut impl SseMutHandler) -> Result<()> {
@@ -67,11 +87,17 @@ impl From<SseConnectionError> for SseSubscribeError {
 #[cfg(test)]
 mod tests {
 
-    use crate::{request::RequestBuilder, sse::connector::fakes::FakeSseConnector};
+    use crate::{
+        request::RequestBuilder,
+        sse::{
+            connector::fakes::FakeSseConnector,
+            subscriber::fakes::{MockHandler, MockMutHandler},
+        },
+    };
 
     use super::*;
     #[test]
-    fn sseのデータを捕捉する() {
+    fn sseのデータを不変なhandlerが捕捉する() {
         let mut connector = FakeSseConnector::new();
         connector.set_response("HTTP/1.1 200 OK\r\n");
         connector.set_response("Content-Type: text/event-stream\r\n");
@@ -79,7 +105,29 @@ mod tests {
         connector.set_response("data: Hello\r\n");
         connector.set_response("data: World!\r\n");
 
-        let mut handler = MockHandler::new();
+        let handler = MockHandler::new();
+        let mut sut = SseSubscriber::new(connector);
+        let request = RequestBuilder::new("https://www.fake").get().build();
+
+        sut.subscribe(&request, &handler).unwrap();
+
+        assert_eq!(sut.connector.connected_times(), 1);
+        assert_eq!(handler.called_time(), 2);
+        handler.assert_received(&[
+            SseResponse::Data("Hello".to_string()),
+            SseResponse::Data("World!".to_string()),
+        ])
+    }
+    #[test]
+    fn sseのデータを可変なhandlerが捕捉する() {
+        let mut connector = FakeSseConnector::new();
+        connector.set_response("HTTP/1.1 200 OK\r\n");
+        connector.set_response("Content-Type: text/event-stream\r\n");
+        connector.set_response("\r\n\r\n");
+        connector.set_response("data: Hello\r\n");
+        connector.set_response("data: World!\r\n");
+
+        let mut handler = MockMutHandler::new();
         let mut sut = SseSubscriber::new(connector);
         let request = RequestBuilder::new("https://www.fake").get().build();
 
@@ -99,7 +147,7 @@ mod tests {
         connector.set_response("Content-Type: text/event-stream\r\n");
         connector.set_response("\r\n\r\n");
 
-        let mut handler = MockHandler::new();
+        let mut handler = MockMutHandler::new();
         let mut sut = SseSubscriber::new(connector);
         let request = RequestBuilder::new("https://www.fake").get().build();
 
@@ -111,26 +159,57 @@ mod tests {
         assert_eq!(err.status_code(), 400);
         assert_eq!(err.get_header("Content-Type"), Some("text/event-stream"));
     }
+}
+#[cfg(test)]
+pub(crate) mod fakes {
+    use std::cell::RefCell;
 
-    struct MockHandler {
+    use crate::sse::response::SseResponse;
+
+    use super::{SseHandler, SseMutHandler};
+    pub struct MockHandler {
+        called: RefCell<usize>,
+        events: RefCell<Vec<SseResponse>>,
+    }
+    impl MockHandler {
+        pub fn new() -> Self {
+            Self {
+                called: RefCell::new(0),
+                events: RefCell::new(vec![]),
+            }
+        }
+        pub fn called_time(&self) -> usize {
+            self.called.borrow().clone()
+        }
+        pub fn assert_received(&self, expected: &[SseResponse]) {
+            assert_eq!(*self.events.borrow(), expected);
+        }
+    }
+    impl SseHandler for MockHandler {
+        fn handle(&self, message: SseResponse) {
+            self.events.borrow_mut().push(message);
+            *self.called.borrow_mut() += 1;
+        }
+    }
+    pub struct MockMutHandler {
         called: usize,
         events: Vec<SseResponse>,
     }
-    impl MockHandler {
-        fn new() -> Self {
+    impl MockMutHandler {
+        pub fn new() -> Self {
             Self {
                 called: 0,
                 events: vec![],
             }
         }
-        fn called_time(&self) -> usize {
+        pub fn called_time(&self) -> usize {
             self.called
         }
-        fn assert_received(&self, expected: &[SseResponse]) {
+        pub fn assert_received(&self, expected: &[SseResponse]) {
             assert_eq!(self.events, expected);
         }
     }
-    impl SseMutHandler for MockHandler {
+    impl SseMutHandler for MockMutHandler {
         fn handle(&mut self, message: SseResponse) {
             self.events.push(message);
             self.called += 1;
