@@ -51,6 +51,9 @@ impl HttpStatusLine {
             self.status_code.to_str()
         )
     }
+    pub fn is_error(&self) -> bool {
+        self.status_code.is_error()
+    }
     pub fn version(&self) -> HttpVersion {
         self.version
     }
@@ -419,5 +422,11 @@ mod tests {
         let sut = HttpStatusLine::from_str(status_line).unwrap();
 
         assert_eq!(sut.to_string(), format!("{}\r\n", status_line));
+    }
+    #[test]
+    fn status_codeからエラーレスポンスか判断可能() {
+        let sut = HttpStatusLine::from_str("HTTP/1.1 400 Bad Request").unwrap();
+
+        assert!(sut.is_error());
     }
 }

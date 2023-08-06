@@ -17,6 +17,9 @@ impl HttpHeader {
     pub fn insert(&mut self, key: &str, value: &str) {
         self.headers.insert(key.to_string(), value.to_string());
     }
+    pub fn concat(&mut self, other: Self) {
+        self.headers.extend(other.headers);
+    }
     pub fn from_line(line: &str) -> Result<Self, HttpHeaderError> {
         let mut headers = HashMap::new();
         let mut iter = line.splitn(2, ":");
@@ -75,5 +78,14 @@ mod header_tests {
         let sut = HttpHeader::from_line(header).unwrap();
 
         assert_eq!(sut.to_string(), format!("{}{}", header, "\r\n"));
+    }
+    #[test]
+    fn header同士で結合可能() {
+        let mut header = HttpHeader::new();
+
+        let other = HttpHeader::from_line("Content-Type: text/html").unwrap();
+        header.concat(other);
+
+        assert_eq!(header.get("Content-Type").unwrap(), "text/html");
     }
 }
