@@ -26,17 +26,13 @@ impl<S: Socket, T: SseConnector<S>> SseSubscriber<S, T> {
             .connect(req)
             .map_err(SseSubscribeError::from)?;
         loop {
-            match connection.consume() {
-                Ok(res) => match res {
-                    ConnectedSseResponse::Progress(sse_response) => {
-                        handler.handle(sse_response);
-                    }
-                    ConnectedSseResponse::Done => {
-                        return Ok(());
-                    }
-                },
-                Err(e) => {
-                    return Err(SseSubscribeError::from(e));
+            let res = connection.consume().map_err(SseSubscribeError::from)?;
+            match res {
+                ConnectedSseResponse::Progress(sse_response) => {
+                    handler.handle(sse_response);
+                }
+                ConnectedSseResponse::Done => {
+                    return Ok(());
                 }
             }
         }
@@ -62,7 +58,7 @@ impl std::error::Error for SseSubscribeError {}
 impl From<SseConnectionError> for SseSubscribeError {
     fn from(err: SseConnectionError) -> Self {
         match err {
-            //SseConnectionError::HttpError(err) => Self::HttpError(err),
+            SseConnectionError::HttpError(err) => Self::HttpError(err),
             _ => Self::ConnectionError(err),
         }
     }
@@ -96,29 +92,26 @@ mod tests {
             SseResponse::Data("World!".to_string()),
         ])
     }
-    //#[test]
-    //fn sseのhttp接続に失敗する() {
-    //let mut connector = FakeSseConnector::new();
-    //let status_line = HttpStatusLine::from_str("HTTP/1.1 400 Bad Request").unwrap();
-    //let header = HttpHeader::from_line("Retry-After: 3600").unwrap();
-    //let body_str = "your request is bad request";
-    //let body = HttpBody::from_line(body_str);
-    //connector.set_http_response(HttpResponse::new(status_line, header, body));
-    //let mut handler = MockHandler::new();
-    //let mut sut = SseSubscriber::new(connector);
-    //let request = RequestBuilder::new("https://www.fake").get().build();
+    #[test]
+    fn sseのhttp接続エラーの場合はhttpのレスポンスをエラーに包んで返す() {
+        let mut connector = FakeSseConnector::new();
+        connector.set_response("HTTP/1.1 400 Bad Request\r\n");
+        connector.set_response("Content-Type: text/event-stream\r\n");
+        connector.set_response("\r\n\r\n");
 
-    //let result = sut.subscribe_mut(&request, &mut handler);
-    //let Err(SseSubscribeError::HttpError(err)) = result else {
-    //panic!("expected Err, but got Ok");
-    //};
+        let mut handler = MockHandler::new();
+        let mut sut = SseSubscriber::new(connector);
+        let request = RequestBuilder::new("https://www.fake").get().build();
 
-    //assert_eq!(err.status_code(), 400);
-    //assert_eq!(err.get_header("Retry-After"), Some("3600"));
-    //assert_eq!(err.body_str(), body_str);
-    //assert_eq!(sut.connector.connected_time(), 1);
-    //assert_eq!(handler.called_time(), 0);
-    //}
+        let result = sut.subscribe_mut(&request, &mut handler);
+        let Err(SseSubscribeError::HttpError(err)) = result else {
+            panic!("expected Err, but got Ok");
+        };
+
+        assert_eq!(err.status_code(), 400);
+        assert_eq!(err.get_header("Content-Type"), Some("text/event-stream"));
+    }
+
     struct MockHandler {
         called: usize,
         events: Vec<SseResponse>,
