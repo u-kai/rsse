@@ -73,17 +73,27 @@ mod tests {
 
     use super::*;
     #[test]
-    fn sse_connectionはbyteを相手から受け取りsseのレスポンスを返す() {
+    fn sse_connectionはデータを接続相手から受け取りsseのレスポンスを返す() {
         let mut fake = FakeTcpConnection::new();
         fake.set_response("HTTP/1.1 200 OK\n\n");
         fake.set_response("Content-Type: text/event-stream\n\n");
         fake.set_response("data: Hello, World!\n\n");
+        fake.set_response("data: Good Bye World\n\n");
         let mut sut = SseConnection::new(fake);
         let result = sut.consume().unwrap();
         assert_eq!(
             result,
             ConnectedSseResponse::Progress(SseResponse::Data("Hello, World!".to_string()))
         );
+
+        let result = sut.consume().unwrap();
+        assert_eq!(
+            result,
+            ConnectedSseResponse::Progress(SseResponse::Data("Good Bye World".to_string()))
+        );
+
+        let done = sut.consume().unwrap();
+        assert_eq!(done, ConnectedSseResponse::Done);
     }
 }
 #[cfg(test)]
