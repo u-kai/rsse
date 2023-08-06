@@ -7,12 +7,15 @@ pub enum SseResponse {
 impl SseResponse {
     pub fn from_line(line: &str) -> Self {
         if line.starts_with("data:") {
-            return Self::Data(line.replace("data:", "").trim().to_string());
+            return Self::Data(Self::trim(line, "data:"));
         }
         if line.starts_with("event:") {
-            return Self::Event(line.replace("event:", "").trim().to_string());
+            return Self::Event(Self::trim(line, "event:"));
         }
         Self::Event(line[6..].to_string().trim_end().to_string())
+    }
+    fn trim(line: &str, res_type: &str) -> String {
+        line.replace(res_type, "").trim().to_string()
     }
 }
 
