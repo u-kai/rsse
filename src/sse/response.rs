@@ -21,6 +21,14 @@ mod tests {
 
     use super::*;
     #[test]
+    fn sse_のデータの場合() {
+        let sse_data = "data: hello world\n\n";
+
+        let sut = SseResponse::from_line(sse_data);
+
+        assert_eq!(SseResponse::Event("hello world".to_string()), sut);
+    }
+    #[test]
     fn http_status_lineの場合() {
         let ok_data = "HTTP/1.1 200 OK\n";
 
@@ -29,12 +37,13 @@ mod tests {
         let expected = HttpStatusLine::new(HttpVersion::V1_1, HttpStatusCode::OK);
         assert_eq!(SseResponse::HttpStatusLine(expected), sut);
     }
-    #[test]
-    fn sse_のデータの場合() {
-        let sse_data = "data: hello world\n\n";
+    //#[test]
+    //fn http_headerの場合() {
+    //let header = "Content-Type: text/event-stream\n";
 
-        let sut = SseResponse::from_line(sse_data);
+    //let sut = SseResponse::from_line(header);
 
-        assert_eq!(SseResponse::Event("hello world".to_string()), sut);
-    }
+    //let expected = HttpStatusLine::new(HttpVersion::V1_1, HttpStatusCode::OK);
+    //assert_eq!(SseResponse::HttpStatusLine(expected), sut);
+    //}
 }
