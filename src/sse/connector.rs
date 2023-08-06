@@ -2,6 +2,7 @@ use crate::request::Request;
 
 pub type Result<T> = std::result::Result<T, SseConnectionError>;
 
+#[derive(Debug, PartialEq, Clone)]
 pub enum SseResponse {
     Data(String),
     Done,

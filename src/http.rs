@@ -414,7 +414,7 @@ mod status_line_tests {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct HttpHeader {
     headers: HashMap<String, String>,
 }
@@ -475,5 +475,13 @@ mod header_tests {
         assert_eq!(sut.get("Content-Type").unwrap(), "text/html");
         assert_eq!(sut.get("Set-Cookie"), None);
         assert_eq!(sut.to_string(), format!("{}{}", header, "\r\n"));
+    }
+
+    #[test]
+    fn 不正な文字列の場合はエラー() {
+        let status_line = "HTTP/1.1 200 OK\n\r";
+        let sut = HttpHeader::from_line(status_line);
+
+        assert!(sut.is_err());
     }
 }
