@@ -9,18 +9,18 @@ pub type Result<T> = std::result::Result<T, SseSubscribeError>;
 pub trait SseMutHandler {
     fn handle(&mut self, res: SseResponse);
 }
-pub struct SseSubscriber<T: SseConnector> {
+pub struct SseSubscriber<S: Socket, T: SseConnector<S>> {
     connector: T,
+    _phantom: std::marker::PhantomData<S>,
 }
-impl<T: SseConnector> SseSubscriber<T> {
+impl<S: Socket, T: SseConnector<S>> SseSubscriber<S, T> {
     pub fn new(connector: T) -> Self {
-        Self { connector }
+        Self {
+            connector,
+            _phantom: std::marker::PhantomData,
+        }
     }
-    pub fn subscribe_mut<S: Socket>(
-        &mut self,
-        req: &Request,
-        handler: &mut impl SseMutHandler,
-    ) -> Result<()> {
+    pub fn subscribe_mut(&mut self, req: &Request, handler: &mut impl SseMutHandler) -> Result<()> {
         let connection: &mut SseConnection<S> = self
             .connector
             .connect(req)
@@ -71,15 +71,31 @@ impl From<SseConnectionError> for SseSubscribeError {
 #[cfg(test)]
 mod tests {
 
-    use crate::{
-        http::{
-            body::HttpBody, header::HttpHeader, response::HttpResponse, status_line::HttpStatusLine,
-        },
-        request::RequestBuilder,
-        //sse::connector::fakes::FakeSseConnector,
-    };
+    use crate::{request::RequestBuilder, sse::connector::fakes::FakeSseConnector};
 
     use super::*;
+    #[test]
+    fn sseのデータを捕捉する() {
+        let mut connector = FakeSseConnector::new();
+        connector.set_response("HTTP/1.1 200 OK\r\n");
+        connector.set_response("Content-Type: text/event-stream\r\n");
+        connector.set_response("\r\n\r\n");
+        connector.set_response("data: Hello\r\n");
+        connector.set_response("data: World!\r\n");
+
+        let mut handler = MockHandler::new();
+        let mut sut = SseSubscriber::new(connector);
+        let request = RequestBuilder::new("https://www.fake").get().build();
+
+        sut.subscribe_mut(&request, &mut handler).unwrap();
+
+        assert_eq!(sut.connector.connected_times(), 1);
+        assert_eq!(handler.called_time(), 2);
+        handler.assert_received(&[
+            SseResponse::Data("Hello".to_string()),
+            SseResponse::Data("World!".to_string()),
+        ])
+    }
     //#[test]
     //fn sseのhttp接続に失敗する() {
     //let mut connector = FakeSseConnector::new();
@@ -103,32 +119,27 @@ mod tests {
     //assert_eq!(sut.connector.connected_time(), 1);
     //assert_eq!(handler.called_time(), 0);
     //}
-    //#[test]
-    //fn sseのデータを捕捉する() {
-    //let mut connector = FakeSseConnector::new();
-    //let response = "hello world";
-    //connector.set_success_sse(response);
-    //let mut handler = MockHandler::new();
-    //let mut sut = SseSubscriber::new(connector);
-    //let request = RequestBuilder::new("https://www.fake").get().build();
-
-    //sut.subscribe_mut(&request, &mut handler).unwrap();
-    //assert_eq!(sut.connector.connected_time(), 1);
-    //assert_eq!(handler.called_time(), response.len());
-    //}
     struct MockHandler {
         called: usize,
+        events: Vec<SseResponse>,
     }
     impl MockHandler {
         fn new() -> Self {
-            Self { called: 0 }
+            Self {
+                called: 0,
+                events: vec![],
+            }
         }
         fn called_time(&self) -> usize {
             self.called
         }
+        fn assert_received(&self, expected: &[SseResponse]) {
+            assert_eq!(self.events, expected);
+        }
     }
     impl SseMutHandler for MockHandler {
-        fn handle(&mut self, _message: SseResponse) {
+        fn handle(&mut self, message: SseResponse) {
+            self.events.push(message);
             self.called += 1;
         }
     }

@@ -1,9 +1,6 @@
 use crate::{
     http::{
-        body::HttpBody,
-        header::HttpHeader,
-        response::HttpResponse,
-        status_line::{HttpStatusLine, HttpVersion},
+        body::HttpBody, header::HttpHeader, response::HttpResponse, status_line::HttpStatusLine,
     },
     request::Request,
 };
@@ -65,8 +62,8 @@ impl<S: Socket> SseConnection<S> {
         SseConnectionError::HttpError(HttpResponse::new(http_status, header, body))
     }
 }
-pub trait SseConnector {
-    fn connect<S: Socket>(&mut self, req: &Request) -> Result<&mut SseConnection<S>>;
+pub trait SseConnector<S: Socket> {
+    fn connect(&mut self, req: &Request) -> Result<&mut SseConnection<S>>;
 }
 
 #[derive(Debug)]
@@ -144,6 +141,36 @@ mod tests {
 }
 #[cfg(test)]
 pub(crate) mod fakes {
+    use super::{Socket, SseConnection, SseConnectionError};
+
+    pub struct FakeSseConnector {
+        connected_times: usize,
+        pub connection: SseConnection<FakeTcpConnection>,
+    }
+    impl FakeSseConnector {
+        pub fn new() -> Self {
+            Self {
+                connection: SseConnection::new(FakeTcpConnection::new()),
+                connected_times: 0,
+            }
+        }
+        pub fn set_response(&mut self, response: &str) {
+            self.connection.conn.set_response(response);
+        }
+        pub fn connected_times(&self) -> usize {
+            self.connected_times
+        }
+    }
+    impl super::SseConnector<FakeTcpConnection> for FakeSseConnector {
+        fn connect(
+            &mut self,
+            _req: &super::Request,
+        ) -> std::result::Result<&mut SseConnection<FakeTcpConnection>, SseConnectionError>
+        {
+            self.connected_times += 1;
+            Ok(&mut self.connection)
+        }
+    }
     pub struct FakeTcpConnection {
         responses: Vec<String>,
     }
@@ -157,7 +184,7 @@ pub(crate) mod fakes {
             self.responses.push(response.to_string());
         }
     }
-    impl super::Socket for FakeTcpConnection {
+    impl Socket for FakeTcpConnection {
         fn read_line(&mut self) -> std::result::Result<Option<String>, std::io::Error> {
             if self.responses.is_empty() {
                 return Ok(None);
@@ -169,60 +196,3 @@ pub(crate) mod fakes {
         }
     }
 }
-
-//#[cfg(test)]
-//pub(crate) mod fakes {
-//use crate::http::{
-//body::HttpBody, header::HttpHeader, response::HttpResponse, status_line::HttpStatusLine,
-//};
-
-//use super::*;
-//pub struct FakeSseConnector {
-//called_time: usize,
-//connection: FakeSseConnection,
-//}
-//impl FakeSseConnector {
-//pub fn new() -> Self {
-//Self {
-//called_time: 0,
-//connection: FakeSseConnection {
-//index: 0,
-//response: String::new(),
-//},
-//}
-//}
-//pub fn set_success_sse(&mut self, response: &str) {
-//self.connection.response = response.to_string();
-//}
-//pub fn set_http_response(&mut self, response: HttpResponse) {
-//self.connection.response = response.to_string();
-//}
-//pub fn connected_time(&self) -> usize {
-//self.called_time
-//}
-//}
-//pub struct FakeSseConnection {
-//index: usize,
-//response: String,
-//}
-//impl SseConnection for FakeSseConnection {
-//fn consume(&mut self) -> Result<ConnectedSseResponse> {
-//let c = self
-//.response
-//.get(self.index..self.index + 1)
-//.map(String::from);
-//self.index += 1;
-//match c {
-//Some(c) => Ok(ConnectedSseResponse::Progress(SseResponse::Data(c))),
-//None => Ok(ConnectedSseResponse::Done),
-//}
-//}
-//}
-//impl SseConnector for FakeSseConnector {
-//type Connection = FakeSseConnection;
-//fn connect(&mut self, _req: &Request) -> Result<&mut FakeSseConnection> {
-//self.called_time += 1;
-//Ok(&mut self.connection)
-//}
-//}
-//}
