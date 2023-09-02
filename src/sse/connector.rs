@@ -16,17 +16,20 @@ use crate::{
 
 use super::response::SseResponse;
 pub type Result<T> = std::result::Result<T, SseConnectionError>;
-pub struct SseTlsConnector {}
+pub struct SseTlsConnector {
+    url: Url,
+}
 
 impl SseTlsConnector {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(url: impl Into<Url>) -> Self {
+        Self { url: url.into() }
     }
 }
 
 impl SseConnector for SseTlsConnector {
     type Socket = TlsSocket;
     fn connect(&mut self, req: &Request) -> Result<&mut SseConnection<Self::Socket>> {
+        let mut socket = TlsSocket::new(&self.url).map_err(|e| SseConnectionError::IOError(e))?;
         Err(SseConnectionError::IOError(std::io::Error::new(
             std::io::ErrorKind::Other,
             "not implemented",
@@ -48,9 +51,8 @@ pub struct TlsSocket {
     tls_stream: rustls::StreamOwned<ClientConnection, TcpStream>,
 }
 impl TlsSocket {
-    pub fn new(url: &Url) -> Result<Self> {
-        let tcp_stream =
-            TcpStream::connect(url.host()).map_err(|e| SseConnectionError::IOError(e))?;
+    pub fn new(url: &Url) -> std::result::Result<Self, std::io::Error> {
+        let tcp_stream = TcpStream::connect(url.host())?;
         let client = default_client_connection(url);
         let tls_stream = rustls::StreamOwned::new(client, tcp_stream);
         Ok(Self { tls_stream })
@@ -245,7 +247,7 @@ mod tests {
                 stream: true,
             })
             .build();
-        let mut tls_connector = SseTlsConnector::new();
+        let mut tls_connector = SseTlsConnector::new(req.url().clone());
         let conn = tls_connector.connect(&req).unwrap();
         println!("conn {:#?}", conn.read().unwrap());
         assert!(false);
