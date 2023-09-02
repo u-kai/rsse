@@ -1,20 +1,98 @@
+use std::{
+    io::{BufRead, BufReader, Write},
+    net::TcpStream,
+    sync::Arc,
+};
+
+use rustls::{ClientConfig, ClientConnection};
+
 use crate::{
     http::{
         body::HttpBody, header::HttpHeader, response::HttpResponse, status_line::HttpStatusLine,
     },
     request::Request,
+    url::Url,
 };
 
 use super::response::SseResponse;
 pub type Result<T> = std::result::Result<T, SseConnectionError>;
+pub struct SseTlsConnector {}
 
-pub trait SseConnector<S: Socket> {
-    fn connect(&mut self, req: &Request) -> Result<&mut SseConnection<S>>;
+impl SseTlsConnector {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl SseConnector for SseTlsConnector {
+    type Socket = TlsSocket;
+    fn connect(&mut self, req: &Request) -> Result<&mut SseConnection<Self::Socket>> {
+        Err(SseConnectionError::IOError(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "not implemented",
+        )))
+    }
+}
+
+pub trait SseConnector {
+    type Socket: Socket;
+    fn connect(&mut self, req: &Request) -> Result<&mut SseConnection<Self::Socket>>;
 }
 
 pub trait Socket {
     fn read_line(&mut self) -> std::result::Result<Option<String>, std::io::Error>;
+    fn write(&mut self, data: &[u8]) -> std::result::Result<(), std::io::Error>;
 }
+
+pub struct TlsSocket {
+    tls_stream: rustls::StreamOwned<ClientConnection, TcpStream>,
+}
+impl TlsSocket {
+    pub fn new(url: &Url) -> Result<Self> {
+        let tcp_stream =
+            TcpStream::connect(url.host()).map_err(|e| SseConnectionError::IOError(e))?;
+        let client = default_client_connection(url);
+        let tls_stream = rustls::StreamOwned::new(client, tcp_stream);
+        Ok(Self { tls_stream })
+    }
+}
+impl Socket for TlsSocket {
+    fn read_line(&mut self) -> std::result::Result<Option<String>, std::io::Error> {
+        let mut buf = String::new();
+        let mut reader = BufReader::new(&mut self.tls_stream);
+        let size = reader.read_line(&mut buf)?;
+        if size == 0 {
+            Ok(None)
+        } else {
+            Ok(Some(buf))
+        }
+    }
+    fn write(&mut self, data: &[u8]) -> std::result::Result<(), std::io::Error> {
+        self.tls_stream.write(data)?;
+        Ok(())
+    }
+}
+
+fn default_client_connection(url: &Url) -> rustls::ClientConnection {
+    let ip = url.host().try_into().unwrap();
+    let config = ClientConfig::builder()
+        .with_safe_defaults()
+        .with_root_certificates(default_root_store())
+        .with_no_client_auth();
+    ClientConnection::new(Arc::new(config), ip).unwrap()
+}
+fn default_root_store() -> rustls::RootCertStore {
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
+        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+            ta.subject,
+            ta.spki,
+            ta.name_constraints,
+        )
+    }));
+    root_store
+}
+
 pub struct SseConnection<S: Socket> {
     conn: S,
 }
@@ -22,7 +100,7 @@ impl<S: Socket> SseConnection<S> {
     pub fn new(conn: S) -> Self {
         Self { conn }
     }
-    pub fn consume(&mut self) -> Result<ConnectedSseResponse> {
+    pub fn read(&mut self) -> Result<ConnectedSseResponse> {
         while let Some(line) = self
             .conn
             .read_line()
@@ -84,12 +162,94 @@ impl std::error::Error for SseConnectionError {}
 
 #[cfg(test)]
 mod tests {
+
     use crate::{
         http::{body::HttpBody, response::HttpResponse},
+        request::RequestBuilder,
         sse::connector::fakes::FakeTcpConnection,
     };
 
     use super::*;
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    struct ChatRequest {
+        model: OpenAIModel,
+        messages: Vec<Message>,
+        stream: bool,
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    pub struct Message {
+        role: Role,
+        content: String,
+    }
+    #[derive(Debug, Clone, serde::Deserialize, PartialEq, Eq)]
+    pub enum Role {
+        User,
+        Assistant,
+    }
+    impl Role {
+        fn into_str(&self) -> &'static str {
+            match self {
+                Self::User => "user",
+                Self::Assistant => "assistant",
+            }
+        }
+    }
+    impl serde::Serialize for Role {
+        fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            let role: &str = self.into_str();
+            serializer.serialize_str(role)
+        }
+    }
+    #[derive(Debug, Clone, serde::Deserialize)]
+    pub enum OpenAIModel {
+        Gpt3Dot5Turbo,
+    }
+    impl serde::Serialize for OpenAIModel {
+        fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+        where
+            S: serde::ser::Serializer,
+        {
+            serializer.serialize_str(self.into_str())
+        }
+    }
+
+    impl OpenAIModel {
+        pub fn into_str(&self) -> &'static str {
+            match self {
+                Self::Gpt3Dot5Turbo => "gpt-3.5-turbo",
+            }
+        }
+    }
+    impl Into<&'static str> for OpenAIModel {
+        fn into(self) -> &'static str {
+            self.into_str()
+        }
+    }
+    #[test]
+    #[ignore = "実際の通信を行うため"]
+    fn chatgptにtlsで通信する() {
+        let url = "https://api.openai.com/v1/chat/completions";
+        let req = RequestBuilder::new(url)
+            .post()
+            .bearer_auth(std::env::var("OPENAI_API_KEY").unwrap().as_str())
+            .json(&ChatRequest {
+                model: OpenAIModel::Gpt3Dot5Turbo,
+                messages: vec![Message {
+                    role: Role::User,
+                    content: "Hello".to_string(),
+                }],
+                stream: true,
+            })
+            .build();
+        let mut tls_connector = SseTlsConnector::new();
+        let conn = tls_connector.connect(&req).unwrap();
+        println!("conn {:#?}", conn.read().unwrap());
+        assert!(false);
+    }
     #[test]
     fn sse_connectionはデータを接続相手から受け取りsseのレスポンスを返す() {
         let mut fake = FakeTcpConnection::new();
@@ -101,19 +261,19 @@ mod tests {
 
         let mut sut = SseConnection::new(fake);
 
-        let result = sut.consume().unwrap();
+        let result = sut.read().unwrap();
         assert_eq!(
             result,
             ConnectedSseResponse::Progress(SseResponse::Data("Hello, World!".to_string()))
         );
 
-        let result = sut.consume().unwrap();
+        let result = sut.read().unwrap();
         assert_eq!(
             result,
             ConnectedSseResponse::Progress(SseResponse::Data("Good Bye World".to_string()))
         );
 
-        let done = sut.consume().unwrap();
+        let done = sut.read().unwrap();
         assert_eq!(done, ConnectedSseResponse::Done);
     }
     #[test]
@@ -123,7 +283,7 @@ mod tests {
         fake.set_response("Content-Type: text/event-stream\n\n");
 
         let mut sut = SseConnection::new(fake);
-        let Err(SseConnectionError::HttpError(result)) = sut.consume() else {
+        let Err(SseConnectionError::HttpError(result)) = sut.read() else {
             panic!("expected Err, but got Ok");
         };
 
@@ -159,7 +319,8 @@ pub(crate) mod fakes {
             self.connected_times
         }
     }
-    impl super::SseConnector<FakeTcpConnection> for FakeSseConnector {
+    impl super::SseConnector for FakeSseConnector {
+        type Socket = FakeTcpConnection;
         fn connect(
             &mut self,
             _req: &super::Request,
@@ -189,8 +350,8 @@ pub(crate) mod fakes {
             }
             Ok(Some(self.responses.remove(0)))
         }
-        //fn write(&mut self, _data: &[u8]) -> std::result::Result<(), std::io::Error> {
-        //Ok(())
-        //}
+        fn write(&mut self, _data: &[u8]) -> std::result::Result<(), std::io::Error> {
+            Ok(())
+        }
     }
 }

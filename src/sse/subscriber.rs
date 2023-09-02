@@ -12,24 +12,24 @@ pub trait SseHandler {
 pub trait SseMutHandler {
     fn handle(&mut self, res: SseResponse);
 }
-pub struct SseSubscriber<S: Socket, T: SseConnector<S>> {
+pub struct SseSubscriber<T: SseConnector> {
     connector: T,
-    _phantom: std::marker::PhantomData<S>,
+    //_phantom: std::marker::PhantomData<S>,
 }
-impl<S: Socket, T: SseConnector<S>> SseSubscriber<S, T> {
+impl<T: SseConnector> SseSubscriber<T> {
     pub fn new(connector: T) -> Self {
         Self {
             connector,
-            _phantom: std::marker::PhantomData,
+            //_phantom: std::marker::PhantomData,
         }
     }
     pub fn subscribe(&mut self, req: &Request, handler: &impl SseHandler) -> Result<()> {
-        let connection: &mut SseConnection<S> = self
+        let connection = self
             .connector
             .connect(req)
             .map_err(SseSubscribeError::from)?;
         loop {
-            let res = connection.consume().map_err(SseSubscribeError::from)?;
+            let res = connection.read().map_err(SseSubscribeError::from)?;
             match res {
                 ConnectedSseResponse::Progress(sse_response) => {
                     handler.handle(sse_response);
@@ -41,12 +41,12 @@ impl<S: Socket, T: SseConnector<S>> SseSubscriber<S, T> {
         }
     }
     pub fn subscribe_mut(&mut self, req: &Request, handler: &mut impl SseMutHandler) -> Result<()> {
-        let connection: &mut SseConnection<S> = self
+        let connection = self
             .connector
             .connect(req)
             .map_err(SseSubscribeError::from)?;
         loop {
-            let res = connection.consume().map_err(SseSubscribeError::from)?;
+            let res = connection.read().map_err(SseSubscribeError::from)?;
             match res {
                 ConnectedSseResponse::Progress(sse_response) => {
                     handler.handle(sse_response);

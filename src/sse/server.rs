@@ -1,6 +1,8 @@
 use std::{
     io::{BufRead, Write},
     net::TcpListener,
+    thread::sleep,
+    time::Duration,
 };
 
 pub struct SseServer {
@@ -32,16 +34,19 @@ impl SseServer {
             if !size > 0 {
                 break;
             }
-            println!("req : {}", line);
         }
         let mut writer = std::io::BufWriter::new(&mut stream);
         writer.write_all(b"HTTP/1.1 200 OK\r\n")?;
         writer.write_all(b"Content-Type: text/event-stream\r\n")?;
         writer.write_all(b"\r\n")?;
+        writer.flush()?;
         for s in &self.responses {
             writer.write_all(Self::make_sse_data(s).as_bytes())?;
+            sleep(Duration::from_millis(500));
             writer.flush()?;
         }
+        writer.write_all(b"\r\n")?;
+        writer.flush()?;
         Ok(())
     }
     fn make_sse_data(s: &str) -> String {
@@ -50,6 +55,6 @@ impl SseServer {
 }
 impl Default for SseServer {
     fn default() -> Self {
-        Self::new("localhost:8080")
+        Self::new("localhost:8081")
     }
 }
