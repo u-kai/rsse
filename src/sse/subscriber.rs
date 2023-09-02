@@ -24,7 +24,7 @@ impl<T: SseConnector> SseSubscriber<T> {
         }
     }
     pub fn subscribe(&mut self, req: &Request, handler: &impl SseHandler) -> Result<()> {
-        let connection = self
+        let mut connection = self
             .connector
             .connect(req)
             .map_err(SseSubscribeError::from)?;
@@ -41,7 +41,7 @@ impl<T: SseConnector> SseSubscriber<T> {
         }
     }
     pub fn subscribe_mut(&mut self, req: &Request, handler: &mut impl SseMutHandler) -> Result<()> {
-        let connection = self
+        let mut connection = self
             .connector
             .connect(req)
             .map_err(SseSubscribeError::from)?;

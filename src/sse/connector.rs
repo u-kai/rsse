@@ -28,18 +28,16 @@ impl SseTlsConnector {
 
 impl SseConnector for SseTlsConnector {
     type Socket = TlsSocket;
-    fn connect(&mut self, req: &Request) -> Result<&mut SseConnection<Self::Socket>> {
+    fn connect(&mut self, req: &Request) -> Result<SseConnection<Self::Socket>> {
         let mut socket = TlsSocket::new(&self.url).map_err(|e| SseConnectionError::IOError(e))?;
-        Err(SseConnectionError::IOError(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "not implemented",
-        )))
+        let conn = SseConnection::new(socket);
+        Ok(conn)
     }
 }
 
 pub trait SseConnector {
     type Socket: Socket;
-    fn connect(&mut self, req: &Request) -> Result<&mut SseConnection<Self::Socket>>;
+    fn connect(&mut self, req: &Request) -> Result<SseConnection<Self::Socket>>;
 }
 
 pub trait Socket {
@@ -95,6 +93,7 @@ fn default_root_store() -> rustls::RootCertStore {
     root_store
 }
 
+#[derive(Debug, Clone)]
 pub struct SseConnection<S: Socket> {
     conn: S,
 }
@@ -248,7 +247,7 @@ mod tests {
             })
             .build();
         let mut tls_connector = SseTlsConnector::new(req.url().clone());
-        let conn = tls_connector.connect(&req).unwrap();
+        let mut conn = tls_connector.connect(&req).unwrap();
         println!("conn {:#?}", conn.read().unwrap());
         assert!(false);
     }
@@ -326,12 +325,12 @@ pub(crate) mod fakes {
         fn connect(
             &mut self,
             _req: &super::Request,
-        ) -> std::result::Result<&mut SseConnection<FakeTcpConnection>, SseConnectionError>
-        {
+        ) -> std::result::Result<SseConnection<FakeTcpConnection>, SseConnectionError> {
             self.connected_times += 1;
-            Ok(&mut self.connection)
+            Ok(self.connection.clone())
         }
     }
+    #[derive(Debug, Clone)]
     pub struct FakeTcpConnection {
         responses: Vec<String>,
     }
