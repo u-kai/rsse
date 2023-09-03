@@ -6,22 +6,32 @@ use super::{
 };
 pub type Result<T> = std::result::Result<T, SseSubscribeError>;
 
-pub trait SseHandler {
-    fn handle(&self, res: SseResponse);
+pub enum SseResult<T, E> {
+    Progress(T),
+    Done(T),
+    Err(E),
 }
-pub trait SseMutHandler {
-    fn handle(&mut self, res: SseResponse);
+
+pub trait SseHandler<T, E> {
+    fn handle(&self, res: SseResponse) -> SseResult<T, E>;
+}
+pub trait SseMutHandler<T, E> {
+    fn handle(&mut self, res: SseResponse) -> SseResult<T, E>;
 }
 #[derive(Debug)]
-pub struct SseSubscriber<T: SseConnector> {
-    connector: T,
+pub struct SseSubscriber<C: SseConnector> {
+    connector: C,
 }
-impl<T: SseConnector> SseSubscriber<T> {
-    pub fn new(connector: T) -> Self {
+impl<C: SseConnector> SseSubscriber<C> {
+    pub fn new(connector: C) -> Self {
         Self { connector }
     }
 
-    pub fn subscribe(&mut self, req: &Request, handler: &impl SseHandler) -> Result<()> {
+    pub fn subscribe<T, E>(
+        &mut self,
+        req: &Request,
+        handler: &impl SseHandler<T, E>,
+    ) -> Result<()> {
         let mut conn = self
             .connector
             .connect(req)
@@ -30,7 +40,15 @@ impl<T: SseConnector> SseSubscriber<T> {
             let res = conn.read().map_err(SseSubscribeError::from)?;
             match res {
                 ConnectedSseResponse::Progress(sse_response) => {
-                    handler.handle(sse_response);
+                    match handler.handle(sse_response) {
+                        SseResult::Progress(_) => {}
+                        SseResult::Done(_) => {
+                            return Ok(());
+                        }
+                        SseResult::Err(_) => {
+                            todo!()
+                        }
+                    };
                 }
                 ConnectedSseResponse::Done => {
                     return Ok(());
@@ -39,7 +57,11 @@ impl<T: SseConnector> SseSubscriber<T> {
         }
     }
 
-    pub fn subscribe_mut(&mut self, req: &Request, handler: &mut impl SseMutHandler) -> Result<()> {
+    pub fn subscribe_mut<T, E>(
+        &mut self,
+        req: &Request,
+        handler: &mut impl SseMutHandler<T, E>,
+    ) -> Result<()> {
         let mut connection = self
             .connector
             .connect(req)
@@ -48,7 +70,15 @@ impl<T: SseConnector> SseSubscriber<T> {
             let res = connection.read().map_err(SseSubscribeError::from)?;
             match res {
                 ConnectedSseResponse::Progress(sse_response) => {
-                    handler.handle(sse_response);
+                    match handler.handle(sse_response) {
+                        SseResult::Progress(_) => {}
+                        SseResult::Done(_) => {
+                            return Ok(());
+                        }
+                        SseResult::Err(_) => {
+                            todo!()
+                        }
+                    };
                 }
                 ConnectedSseResponse::Done => {
                     return Ok(());
@@ -95,6 +125,28 @@ mod tests {
     };
 
     use super::*;
+    #[test]
+    fn handlerは処理を中断する旨のデータを返却可能() {
+        let mut connector = FakeSseConnector::new();
+        connector.set_response("HTTP/1.1 200 OK\r\n");
+        connector.set_response("Content-Type: text/event-stream\r\n");
+        connector.set_response("\r\n\r\n");
+        connector.set_response("data: Hello\r\n");
+        connector.set_response("data: World!\r\n");
+
+        let handler = MockHandler::new();
+        let mut sut = SseSubscriber::new(connector);
+        let request = RequestBuilder::new("https://www.fake").get().build();
+
+        sut.subscribe(&request, &handler).unwrap();
+
+        assert_eq!(sut.connector.connected_times(), 1);
+        assert_eq!(handler.called_time(), 2);
+        handler.assert_received(&[
+            SseResponse::Data("Hello".to_string()),
+            SseResponse::Data("World!".to_string()),
+        ])
+    }
     #[test]
     fn sseのデータを不変なhandlerが捕捉する() {
         let mut connector = FakeSseConnector::new();
@@ -165,17 +217,22 @@ pub(crate) mod fakes {
 
     use crate::sse::response::SseResponse;
 
-    use super::{SseHandler, SseMutHandler};
+    use super::{SseHandler, SseMutHandler, SseResult};
     pub struct MockHandler {
         called: RefCell<usize>,
         events: RefCell<Vec<SseResponse>>,
+        returns: RefCell<Vec<SseResult<(), ()>>>,
     }
     impl MockHandler {
         pub fn new() -> Self {
             Self {
                 called: RefCell::new(0),
                 events: RefCell::new(vec![]),
+                returns: RefCell::new(vec![]),
             }
+        }
+        pub fn set_returns(&self, returns: Vec<SseResult<(), ()>>) {
+            *self.returns.borrow_mut() = returns;
         }
         pub fn called_time(&self) -> usize {
             self.called.borrow().clone()
@@ -184,22 +241,32 @@ pub(crate) mod fakes {
             assert_eq!(*self.events.borrow(), expected);
         }
     }
-    impl SseHandler for MockHandler {
-        fn handle(&self, message: SseResponse) {
+    impl SseHandler<(), ()> for MockHandler {
+        fn handle(&self, message: SseResponse) -> SseResult<(), ()> {
             self.events.borrow_mut().push(message);
             *self.called.borrow_mut() += 1;
+            if self.called.borrow().eq(&self.returns.borrow().len()) {
+                SseResult::Done(())
+            } else {
+                SseResult::Progress(())
+            }
         }
     }
     pub struct MockMutHandler {
         called: usize,
         events: Vec<SseResponse>,
+        returns: Vec<SseResult<(), ()>>,
     }
     impl MockMutHandler {
         pub fn new() -> Self {
             Self {
                 called: 0,
                 events: vec![],
+                returns: vec![],
             }
+        }
+        pub fn set_returns(&mut self, returns: Vec<SseResult<(), ()>>) {
+            self.returns = returns;
         }
         pub fn called_time(&self) -> usize {
             self.called
@@ -208,10 +275,15 @@ pub(crate) mod fakes {
             assert_eq!(self.events, expected);
         }
     }
-    impl SseMutHandler for MockMutHandler {
-        fn handle(&mut self, message: SseResponse) {
+    impl SseMutHandler<(), ()> for MockMutHandler {
+        fn handle(&mut self, message: SseResponse) -> SseResult<(), ()> {
             self.events.push(message);
             self.called += 1;
+            if self.called.eq(&self.returns.len()) {
+                SseResult::Done(())
+            } else {
+                SseResult::Progress(())
+            }
         }
     }
 }

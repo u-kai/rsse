@@ -312,14 +312,61 @@ pub(crate) mod fakes {
 }
 #[cfg(test)]
 pub mod chatgpt {
-    use crate::sse::response::SseResponse;
+    use crate::sse::{response::SseResponse, subscriber::SseResult};
 
     use super::ConnectedSseResponse;
 
+    pub struct GptHandler {
+        flag: bool,
+    }
+    impl GptHandler {
+        pub fn new() -> Self {
+            GptHandler { flag: false }
+        }
+        pub fn is_success(&self) -> bool {
+            self.flag
+        }
+    }
+    impl crate::sse::subscriber::SseMutHandler<(), ()> for GptHandler {
+        fn handle(&mut self, res: SseResponse) -> SseResult<(), ()> {
+            let res = evaluate_chatgpt_sse_response(&res);
+            match res {
+                ChatGptRes::Done => {
+                    println!("done");
+                    self.flag = true;
+                    SseResult::Done(())
+                }
+                ChatGptRes::Data(data) => {
+                    println!("progress: {}", data);
+                    SseResult::Progress(())
+                }
+                ChatGptRes::Err => {
+                    self.flag = false;
+                    println!("error");
+                    SseResult::Err(())
+                }
+            }
+        }
+    }
     pub enum ChatGptRes {
         Done,
         Data(String),
         Err,
+    }
+    pub fn evaluate_chatgpt_sse_response(res: &SseResponse) -> ChatGptRes {
+        match res {
+            SseResponse::Retry(_) => ChatGptRes::Err,
+            SseResponse::Data(data) => {
+                if "[DONE]".contains(data) {
+                    ChatGptRes::Done
+                } else {
+                    ChatGptRes::Data(data.to_string())
+                }
+            }
+            SseResponse::Id(id) => ChatGptRes::Data(id.to_string()),
+            SseResponse::Event(event) => ChatGptRes::Data(event.to_string()),
+            _ => ChatGptRes::Err,
+        }
     }
     pub fn evaluate_chatgpt_response(res: &ConnectedSseResponse) -> ChatGptRes {
         match res {

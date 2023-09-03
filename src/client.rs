@@ -63,15 +63,15 @@ impl<C: SseConnector> SseClientBuilder<C> {
     }
 }
 impl<C: SseConnector> SseClient<C> {
-    pub fn send<T: SseHandler>(
+    pub fn send<T, E, H: SseHandler<T, E>>(
         &mut self,
-        handler: &T,
+        handler: &H,
     ) -> Result<(), crate::sse::subscriber::SseSubscribeError> {
         self.subscriber.subscribe(&self.req, handler)
     }
-    pub fn send_mut<T: SseMutHandler>(
+    pub fn send_mut<T, E, H: SseMutHandler<T, E>>(
         &mut self,
-        handler: &mut T,
+        handler: &mut H,
     ) -> Result<(), crate::sse::subscriber::SseSubscribeError> {
         self.subscriber.subscribe_mut(&self.req, handler)
     }
@@ -80,8 +80,34 @@ impl<C: SseConnector> SseClient<C> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sse::{self, connector::fakes::FakeSseConnector, response::SseResponse};
+    use crate::sse::{
+        self,
+        connector::{
+            chatgpt::{
+                chatgpt_key, evaluate_chatgpt_response, evaluate_chatgpt_sse_response, message,
+                ChatGptRes, GptHandler, URL,
+            },
+            fakes::FakeSseConnector,
+            ConnectedSseResponse,
+        },
+        response::SseResponse,
+    };
 
+    #[test]
+    #[ignore = "実際の通信を行うため"]
+    fn chatgptに通信する() {
+        let mut gpt_handler = GptHandler::new();
+        let mut sut = SseClientBuilder::new(URL)
+            .post()
+            .json(message("Hello"))
+            .bearer_auth(&chatgpt_key())
+            .build();
+
+        let result = sut.send_mut(&mut gpt_handler).unwrap();
+
+        assert_eq!(result, ());
+        assert!(gpt_handler.is_success());
+    }
     #[test]
     fn ビルダーパターンでsseのサブスクリプションを行う() {
         let handler = sse::subscriber::fakes::MockHandler::new();
