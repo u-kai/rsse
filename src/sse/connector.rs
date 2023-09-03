@@ -22,6 +22,25 @@ impl SseTlsConnector {
     pub fn new() -> Self {
         Self {}
     }
+    fn default_client_connection(url: &Url) -> rustls::ClientConnection {
+        let ip = url.host().try_into().unwrap();
+        let config = ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(Self::default_root_store())
+            .with_no_client_auth();
+        ClientConnection::new(Arc::new(config), ip).unwrap()
+    }
+    fn default_root_store() -> rustls::RootCertStore {
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
+            rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+                ta.subject,
+                ta.spki,
+                ta.name_constraints,
+            )
+        }));
+        root_store
+    }
 }
 
 impl SseConnector for SseTlsConnector {
@@ -30,7 +49,7 @@ impl SseConnector for SseTlsConnector {
         let url = req.url();
         let tcp_stream =
             TcpStream::connect(url.to_addr_str()).map_err(|e| SseConnectionError::IOError(e))?;
-        let client = default_client_connection(url);
+        let client = Self::default_client_connection(url);
         let mut tls_stream = rustls::StreamOwned::new(client, tcp_stream);
         tls_stream
             .write_all(req.bytes())
@@ -72,26 +91,6 @@ impl Socket for TlsSocket {
             Ok(Some(buf))
         }
     }
-}
-
-fn default_client_connection(url: &Url) -> rustls::ClientConnection {
-    let ip = url.host().try_into().unwrap();
-    let config = ClientConfig::builder()
-        .with_safe_defaults()
-        .with_root_certificates(default_root_store())
-        .with_no_client_auth();
-    ClientConnection::new(Arc::new(config), ip).unwrap()
-}
-fn default_root_store() -> rustls::RootCertStore {
-    let mut root_store = rustls::RootCertStore::empty();
-    root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
-        rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-            ta.subject,
-            ta.spki,
-            ta.name_constraints,
-        )
-    }));
-    root_store
 }
 
 #[derive(Debug, Clone)]

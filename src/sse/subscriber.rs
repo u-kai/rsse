@@ -14,22 +14,18 @@ pub trait SseMutHandler {
 }
 pub struct SseSubscriber<T: SseConnector> {
     connector: T,
-    //_phantom: std::marker::PhantomData<S>,
 }
 impl<T: SseConnector> SseSubscriber<T> {
     pub fn new(connector: T) -> Self {
-        Self {
-            connector,
-            //_phantom: std::marker::PhantomData,
-        }
+        Self { connector }
     }
     pub fn subscribe(&mut self, req: &Request, handler: &impl SseHandler) -> Result<()> {
-        let mut connection = self
+        let mut conn = self
             .connector
             .connect(req)
             .map_err(SseSubscribeError::from)?;
         loop {
-            let res = connection.read().map_err(SseSubscribeError::from)?;
+            let res = conn.read().map_err(SseSubscribeError::from)?;
             match res {
                 ConnectedSseResponse::Progress(sse_response) => {
                     handler.handle(sse_response);
