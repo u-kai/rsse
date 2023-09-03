@@ -16,21 +16,30 @@ use crate::{
 
 use super::response::SseResponse;
 pub type Result<T> = std::result::Result<T, SseConnectionError>;
-pub struct SseTlsConnector {
-    url: Url,
-}
+pub struct SseTlsConnector {}
 
 impl SseTlsConnector {
-    pub fn new(url: impl Into<Url>) -> Self {
-        Self { url: url.into() }
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
 impl SseConnector for SseTlsConnector {
     type Socket = TlsSocket;
     fn connect(&mut self, req: &Request) -> Result<SseConnection<Self::Socket>> {
-        let mut socket = TlsSocket::new(&self.url).map_err(|e| SseConnectionError::IOError(e))?;
-        let conn = SseConnection::new(socket);
+        println!("req to {:#?}", req);
+
+        let url = req.url();
+        let tcp_stream =
+            TcpStream::connect(url.to_addr_str()).map_err(|e| SseConnectionError::IOError(e))?;
+        let client = default_client_connection(url);
+        let mut tls_stream = rustls::StreamOwned::new(client, tcp_stream);
+        tls_stream
+            .write_all(req.bytes())
+            .map_err(|e| SseConnectionError::IOError(e))?;
+        let socket = TlsSocket::new(tls_stream).map_err(|e| SseConnectionError::IOError(e))?;
+        let mut conn = SseConnection::new(socket);
+        conn.connect(req)?;
         Ok(conn)
     }
 }
@@ -45,22 +54,30 @@ pub trait Socket {
     fn write(&mut self, data: &[u8]) -> std::result::Result<(), std::io::Error>;
 }
 
+#[derive(Debug)]
 pub struct TlsSocket {
-    tls_stream: rustls::StreamOwned<ClientConnection, TcpStream>,
+    reader: BufReader<rustls::StreamOwned<ClientConnection, TcpStream>>,
+    //tls_stream: rustls::StreamOwned<ClientConnection, TcpStream>,
 }
 impl TlsSocket {
-    pub fn new(url: &Url) -> std::result::Result<Self, std::io::Error> {
-        let tcp_stream = TcpStream::connect(url.host())?;
-        let client = default_client_connection(url);
-        let tls_stream = rustls::StreamOwned::new(client, tcp_stream);
-        Ok(Self { tls_stream })
+    pub fn new(
+        tls_stream: rustls::StreamOwned<ClientConnection, TcpStream>,
+    ) -> std::result::Result<Self, std::io::Error> {
+        //        let tcp_stream = TcpStream::connect(url.to_addr_str())?;
+        //        let client = default_client_connection(url);
+        //        let tls_stream = rustls::StreamOwned::new(client, tcp_stream);
+        let reader = BufReader::new(tls_stream);
+        Ok(Self { reader })
+        //Ok(Self { tls_stream })
     }
 }
 impl Socket for TlsSocket {
     fn read_line(&mut self) -> std::result::Result<Option<String>, std::io::Error> {
         let mut buf = String::new();
-        let mut reader = BufReader::new(&mut self.tls_stream);
-        let size = reader.read_line(&mut buf)?;
+        // readerがdropされるとtls_streamがdropされるので、
+        // それによって正確な値が返ってない?
+        //let mut reader = BufReader::new(&mut self.tls_stream);
+        let size = self.reader.read_line(&mut buf)?;
         if size == 0 {
             Ok(None)
         } else {
@@ -68,7 +85,7 @@ impl Socket for TlsSocket {
         }
     }
     fn write(&mut self, data: &[u8]) -> std::result::Result<(), std::io::Error> {
-        self.tls_stream.write(data)?;
+        //self.tls_stream.write(data)?;
         Ok(())
     }
 }
@@ -100,6 +117,12 @@ pub struct SseConnection<S: Socket> {
 impl<S: Socket> SseConnection<S> {
     pub fn new(conn: S) -> Self {
         Self { conn }
+    }
+    pub fn connect(&mut self, req: &Request) -> Result<()> {
+        self.conn
+            .write(req.bytes())
+            .map_err(|e| SseConnectionError::IOError(e))?;
+        Ok(())
     }
     pub fn read(&mut self) -> Result<ConnectedSseResponse> {
         while let Some(line) = self
@@ -246,10 +269,29 @@ mod tests {
                 stream: true,
             })
             .build();
-        let mut tls_connector = SseTlsConnector::new(req.url().clone());
+        let mut tls_connector = SseTlsConnector::new();
         let mut conn = tls_connector.connect(&req).unwrap();
-        println!("conn {:#?}", conn.read().unwrap());
-        assert!(false);
+        let mut result = conn.read();
+        let mut flag = false;
+        while let Ok(res) = &result {
+            if let ConnectedSseResponse::Done = res.clone() {
+                println!("close done");
+                flag = true;
+                break;
+            }
+            if let ConnectedSseResponse::Progress(SseResponse::Data(data)) = res.clone() {
+                if "[DONE]".contains(&data) {
+                    println!("gpt done");
+                    flag = true;
+                    break;
+                }
+                println!("data : {}", data);
+                result = conn.read();
+                continue;
+            }
+            result = conn.read();
+        }
+        assert!(flag);
     }
     #[test]
     fn sse_connectionはデータを接続相手から受け取りsseのレスポンスを返す() {
