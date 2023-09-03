@@ -4,6 +4,7 @@ use event_handler::SseHandler;
 use response::SseResponse;
 use subscriber::SubscriberBuilder;
 
+pub mod client;
 mod event_handler;
 mod http;
 mod request;

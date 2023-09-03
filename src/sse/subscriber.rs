@@ -1,17 +1,18 @@
 use crate::{http::response::HttpResponse, request::Request};
 
 use super::{
-    connector::{ConnectedSseResponse, Socket, SseConnection, SseConnectionError, SseConnector},
+    connector::{ConnectedSseResponse, SseConnectionError, SseConnector},
     response::SseResponse,
 };
-
 pub type Result<T> = std::result::Result<T, SseSubscribeError>;
+
 pub trait SseHandler {
     fn handle(&self, res: SseResponse);
 }
 pub trait SseMutHandler {
     fn handle(&mut self, res: SseResponse);
 }
+#[derive(Debug)]
 pub struct SseSubscriber<T: SseConnector> {
     connector: T,
 }
@@ -19,6 +20,7 @@ impl<T: SseConnector> SseSubscriber<T> {
     pub fn new(connector: T) -> Self {
         Self { connector }
     }
+
     pub fn subscribe(&mut self, req: &Request, handler: &impl SseHandler) -> Result<()> {
         let mut conn = self
             .connector
@@ -36,6 +38,7 @@ impl<T: SseConnector> SseSubscriber<T> {
             }
         }
     }
+
     pub fn subscribe_mut(&mut self, req: &Request, handler: &mut impl SseMutHandler) -> Result<()> {
         let mut connection = self
             .connector
