@@ -66,14 +66,16 @@ impl<C: SseConnector> SseClient<C> {
     pub fn send<T, E, H: SseHandler<T, E>>(
         &mut self,
         handler: &H,
-    ) -> Result<(), crate::sse::subscriber::SseSubscribeError> {
-        self.subscriber.subscribe(&self.req, handler)
+    ) -> Result<(), crate::sse::subscriber::SseSubscribeError<E>> {
+        self.subscriber.subscribe(&self.req, handler);
+        Ok(())
     }
     pub fn send_mut<T, E, H: SseMutHandler<T, E>>(
         &mut self,
         handler: &mut H,
-    ) -> Result<(), crate::sse::subscriber::SseSubscribeError> {
-        self.subscriber.subscribe_mut(&self.req, handler)
+    ) -> Result<(), crate::sse::subscriber::SseSubscribeError<E>> {
+        self.subscriber.subscribe_mut(&self.req, handler);
+        Ok(())
     }
 }
 

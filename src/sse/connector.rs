@@ -312,7 +312,7 @@ pub(crate) mod fakes {
 }
 #[cfg(test)]
 pub mod chatgpt {
-    use crate::sse::{response::SseResponse, subscriber::SseResult};
+    use crate::sse::{response::SseResponse, subscriber::HandleProgress};
 
     use super::ConnectedSseResponse;
 
@@ -328,24 +328,27 @@ pub mod chatgpt {
         }
     }
     impl crate::sse::subscriber::SseMutHandler<(), ()> for GptHandler {
-        fn handle(&mut self, res: SseResponse) -> SseResult<(), ()> {
+        fn handle(&mut self, res: SseResponse) -> HandleProgress<()> {
             let res = evaluate_chatgpt_sse_response(&res);
             match res {
                 ChatGptRes::Done => {
                     println!("done");
                     self.flag = true;
-                    SseResult::Done(())
+                    HandleProgress::Done
                 }
                 ChatGptRes::Data(data) => {
                     println!("progress: {}", data);
-                    SseResult::Progress(())
+                    HandleProgress::Progress
                 }
                 ChatGptRes::Err => {
                     self.flag = false;
                     println!("error");
-                    SseResult::Err(())
+                    HandleProgress::Err(())
                 }
             }
+        }
+        fn result(&self) -> std::result::Result<(), ()> {
+            Ok(())
         }
     }
     pub enum ChatGptRes {

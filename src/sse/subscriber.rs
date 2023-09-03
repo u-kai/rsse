@@ -1,23 +1,29 @@
+use std::fmt::Debug;
+
 use crate::{http::response::HttpResponse, request::Request};
 
 use super::{
     connector::{ConnectedSseResponse, SseConnectionError, SseConnector},
     response::SseResponse,
 };
-pub type Result<T> = std::result::Result<T, SseSubscribeError>;
+pub type Result<T, E> = std::result::Result<T, SseSubscribeError<E>>;
 
-pub enum SseResult<T, E> {
-    Progress(T),
-    Done(T),
+#[derive(Debug)]
+pub enum HandleProgress<E> {
+    Done,
+    Progress,
     Err(E),
 }
 
 pub trait SseHandler<T, E> {
-    fn handle(&self, res: SseResponse) -> SseResult<T, E>;
+    fn handle(&self, res: SseResponse) -> HandleProgress<E>;
+    fn result(&self) -> std::result::Result<T, E>;
 }
 pub trait SseMutHandler<T, E> {
-    fn handle(&mut self, res: SseResponse) -> SseResult<T, E>;
+    fn handle(&mut self, res: SseResponse) -> HandleProgress<E>;
+    fn result(&self) -> std::result::Result<T, E>;
 }
+
 #[derive(Debug)]
 pub struct SseSubscriber<C: SseConnector> {
     connector: C,
@@ -31,7 +37,7 @@ impl<C: SseConnector> SseSubscriber<C> {
         &mut self,
         req: &Request,
         handler: &impl SseHandler<T, E>,
-    ) -> Result<()> {
+    ) -> Result<T, E> {
         let mut conn = self
             .connector
             .connect(req)
@@ -41,17 +47,21 @@ impl<C: SseConnector> SseSubscriber<C> {
             match res {
                 ConnectedSseResponse::Progress(sse_response) => {
                     match handler.handle(sse_response) {
-                        SseResult::Progress(_) => {}
-                        SseResult::Done(_) => {
-                            return Ok(());
+                        HandleProgress::Progress => {}
+                        HandleProgress::Done => {
+                            return handler
+                                .result()
+                                .map_err(|e| SseSubscribeError::HandlerError(e));
                         }
-                        SseResult::Err(_) => {
+                        HandleProgress::Err(_) => {
                             todo!()
                         }
                     };
                 }
                 ConnectedSseResponse::Done => {
-                    return Ok(());
+                    return handler
+                        .result()
+                        .map_err(|e| SseSubscribeError::HandlerError(e));
                 }
             }
         }
@@ -61,7 +71,7 @@ impl<C: SseConnector> SseSubscriber<C> {
         &mut self,
         req: &Request,
         handler: &mut impl SseMutHandler<T, E>,
-    ) -> Result<()> {
+    ) -> Result<T, E> {
         let mut connection = self
             .connector
             .connect(req)
@@ -71,17 +81,21 @@ impl<C: SseConnector> SseSubscriber<C> {
             match res {
                 ConnectedSseResponse::Progress(sse_response) => {
                     match handler.handle(sse_response) {
-                        SseResult::Progress(_) => {}
-                        SseResult::Done(_) => {
-                            return Ok(());
+                        HandleProgress::Progress => {}
+                        HandleProgress::Done => {
+                            return handler
+                                .result()
+                                .map_err(|e| SseSubscribeError::HandlerError(e));
                         }
-                        SseResult::Err(_) => {
+                        HandleProgress::Err(_) => {
                             todo!()
                         }
                     };
                 }
                 ConnectedSseResponse::Done => {
-                    return Ok(());
+                    return handler
+                        .result()
+                        .map_err(|e| SseSubscribeError::HandlerError(e));
                 }
             }
         }
@@ -89,22 +103,24 @@ impl<C: SseConnector> SseSubscriber<C> {
 }
 
 #[derive(Debug)]
-pub enum SseSubscribeError {
+pub enum SseSubscribeError<E> {
     ConnectionError(SseConnectionError),
     HttpError(HttpResponse),
+    HandlerError(E),
 }
-impl std::fmt::Display for SseSubscribeError {
+impl<E: Debug> std::fmt::Display for SseSubscribeError<E> {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             SseSubscribeError::HttpError(err) => {
                 write!(f, "SseSubscribeError: {}", err.to_string())
             }
             Self::ConnectionError(err) => write!(f, "SseSubscribeError: {}", err.to_string()),
+            Self::HandlerError(err) => write!(f, "SseSubscribeError: {:?}", err),
         }
     }
 }
-impl std::error::Error for SseSubscribeError {}
-impl From<SseConnectionError> for SseSubscribeError {
+impl<E: Debug> std::error::Error for SseSubscribeError<E> {}
+impl<E> From<SseConnectionError> for SseSubscribeError<E> {
     fn from(err: SseConnectionError) -> Self {
         match err {
             SseConnectionError::HttpError(err) => Self::HttpError(err),
@@ -125,6 +141,42 @@ mod tests {
     };
 
     use super::*;
+    #[test]
+    fn handlerの最終結果を取得可能() {
+        let mut connector = FakeSseConnector::new();
+        connector.set_response("HTTP/1.1 200 OK\r\n");
+        connector.set_response("Content-Type: text/event-stream\r\n");
+        connector.set_response("\r\n\r\n");
+        connector.set_response("data: Hello\r\n");
+        connector.set_response("data: World!\r\n");
+
+        struct StringReturnHandler {
+            result: String,
+        }
+        impl SseMutHandler<String, ()> for StringReturnHandler {
+            fn handle(&mut self, res: SseResponse) -> HandleProgress<()> {
+                match res {
+                    SseResponse::Data(data) => {
+                        self.result.push_str(&data);
+                        HandleProgress::Progress
+                    }
+                    _ => todo!(),
+                }
+            }
+            fn result(&self) -> std::result::Result<String, ()> {
+                Ok(self.result.clone())
+            }
+        }
+        let mut handler = StringReturnHandler {
+            result: String::new(),
+        };
+        let mut sut = SseSubscriber::new(connector);
+        let request = RequestBuilder::new("https://www.fake").get().build();
+
+        let result = sut.subscribe_mut(&request, &mut handler).unwrap();
+
+        assert_eq!(result, "HelloWorld!");
+    }
     #[test]
     fn handlerは処理を中断する旨のデータを返却可能() {
         let mut connector = FakeSseConnector::new();
@@ -217,11 +269,11 @@ pub(crate) mod fakes {
 
     use crate::sse::response::SseResponse;
 
-    use super::{SseHandler, SseMutHandler, SseResult};
+    use super::{HandleProgress, SseHandler, SseMutHandler};
     pub struct MockHandler {
         called: RefCell<usize>,
         events: RefCell<Vec<SseResponse>>,
-        returns: RefCell<Vec<SseResult<(), ()>>>,
+        returns: RefCell<Vec<()>>,
     }
     impl MockHandler {
         pub fn new() -> Self {
@@ -231,7 +283,7 @@ pub(crate) mod fakes {
                 returns: RefCell::new(vec![]),
             }
         }
-        pub fn set_returns(&self, returns: Vec<SseResult<(), ()>>) {
+        pub fn set_returns(&self, returns: Vec<()>) {
             *self.returns.borrow_mut() = returns;
         }
         pub fn called_time(&self) -> usize {
@@ -242,20 +294,24 @@ pub(crate) mod fakes {
         }
     }
     impl SseHandler<(), ()> for MockHandler {
-        fn handle(&self, message: SseResponse) -> SseResult<(), ()> {
+        fn handle(&self, message: SseResponse) -> HandleProgress<()> {
             self.events.borrow_mut().push(message);
             *self.called.borrow_mut() += 1;
             if self.called.borrow().eq(&self.returns.borrow().len()) {
-                SseResult::Done(())
+                HandleProgress::Done
             } else {
-                SseResult::Progress(())
+                HandleProgress::Progress
             }
+        }
+        fn result(&self) -> std::result::Result<(), ()> {
+            //            self.returns.borrow()[*self.called.borrow()].clone()
+            Ok(())
         }
     }
     pub struct MockMutHandler {
         called: usize,
         events: Vec<SseResponse>,
-        returns: Vec<SseResult<(), ()>>,
+        returns: Vec<()>,
     }
     impl MockMutHandler {
         pub fn new() -> Self {
@@ -265,7 +321,7 @@ pub(crate) mod fakes {
                 returns: vec![],
             }
         }
-        pub fn set_returns(&mut self, returns: Vec<SseResult<(), ()>>) {
+        pub fn set_returns(&mut self, returns: Vec<()>) {
             self.returns = returns;
         }
         pub fn called_time(&self) -> usize {
@@ -276,14 +332,17 @@ pub(crate) mod fakes {
         }
     }
     impl SseMutHandler<(), ()> for MockMutHandler {
-        fn handle(&mut self, message: SseResponse) -> SseResult<(), ()> {
+        fn handle(&mut self, message: SseResponse) -> HandleProgress<()> {
             self.events.push(message);
             self.called += 1;
             if self.called.eq(&self.returns.len()) {
-                SseResult::Done(())
+                HandleProgress::Done
             } else {
-                SseResult::Progress(())
+                HandleProgress::Progress
             }
+        }
+        fn result(&self) -> std::result::Result<(), ()> {
+            Ok(())
         }
     }
 }
