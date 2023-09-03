@@ -104,6 +104,7 @@ impl<C: SseConnector> SseSubscriber<C> {
 
 #[derive(Debug)]
 pub enum SseSubscribeError<E> {
+    InvalidUrl(String),
     ConnectionError(SseConnectionError),
     HttpError(HttpResponse),
     HandlerError(E),
@@ -116,6 +117,7 @@ impl<E: Debug> std::fmt::Display for SseSubscribeError<E> {
             }
             Self::ConnectionError(err) => write!(f, "SseSubscribeError: {}", err.to_string()),
             Self::HandlerError(err) => write!(f, "SseSubscribeError: {:?}", err),
+            Self::InvalidUrl(url) => write!(f, "SseSubscribeError: InvalidUrl({})", url),
         }
     }
 }

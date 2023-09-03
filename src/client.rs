@@ -1,8 +1,10 @@
+use std::{io::Write, net::TcpStream};
+
 use crate::{
     request::{Request, RequestBuilder},
     sse::{
-        connector::{SseConnector, SseTlsConnector},
-        subscriber::{SseHandler, SseMutHandler, SseSubscriber},
+        connector::{SseConnectionError, SseConnector, SseTlsConnector},
+        subscriber::{Result, SseHandler, SseMutHandler, SseSubscribeError, SseSubscriber},
     },
     url::Url,
 };
@@ -63,19 +65,11 @@ impl<C: SseConnector> SseClientBuilder<C> {
     }
 }
 impl<C: SseConnector> SseClient<C> {
-    pub fn send<T, E, H: SseHandler<T, E>>(
-        &mut self,
-        handler: &H,
-    ) -> Result<(), crate::sse::subscriber::SseSubscribeError<E>> {
-        self.subscriber.subscribe(&self.req, handler);
-        Ok(())
+    pub fn send<T, E, H: SseHandler<T, E>>(&mut self, handler: &H) -> Result<T, E> {
+        self.subscriber.subscribe(&self.req, handler)
     }
-    pub fn send_mut<T, E, H: SseMutHandler<T, E>>(
-        &mut self,
-        handler: &mut H,
-    ) -> Result<(), crate::sse::subscriber::SseSubscribeError<E>> {
-        self.subscriber.subscribe_mut(&self.req, handler);
-        Ok(())
+    pub fn send_mut<T, E, H: SseMutHandler<T, E>>(&mut self, handler: &mut H) -> Result<T, E> {
+        self.subscriber.subscribe_mut(&self.req, handler)
     }
 }
 
@@ -85,16 +79,30 @@ mod tests {
     use crate::sse::{
         self,
         connector::{
-            chatgpt::{
-                chatgpt_key, evaluate_chatgpt_response, evaluate_chatgpt_sse_response, message,
-                ChatGptRes, GptHandler, URL,
-            },
+            chatgpt::{chatgpt_key, message, ChatGptRes, GptHandler, URL},
             fakes::FakeSseConnector,
             ConnectedSseResponse,
         },
         response::SseResponse,
     };
 
+    //#[test]
+    //#[ignore = "dockerによるproxyが必要のため"]
+    //fn proxyに対して通信可能() {
+    //    let mut gpt_handler = GptHandler::new();
+    //    let mut sut = SseClientBuilder::new(URL)
+    //        .post()
+    //        .json(message("Hello"))
+    //        .proxy("http://localhost:8000")
+    //        .bearer_auth(&chatgpt_key())
+    //        .build();
+
+    //    let result = sut.send_mut(&mut gpt_handler).unwrap();
+
+    //    println!("gpt > {:?}", result);
+    //    assert!(result.len() > 0);
+    //    assert!(gpt_handler.is_success());
+    //}
     #[test]
     #[ignore = "実際の通信を行うため"]
     fn chatgptに通信する() {
@@ -107,7 +115,8 @@ mod tests {
 
         let result = sut.send_mut(&mut gpt_handler).unwrap();
 
-        assert_eq!(result, ());
+        println!("gpt > {:?}", result);
+        assert!(result.len() > 0);
         assert!(gpt_handler.is_success());
     }
     #[test]

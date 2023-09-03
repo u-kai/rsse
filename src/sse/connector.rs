@@ -1,16 +1,20 @@
 use std::{
-    io::{BufRead, BufReader, Write},
+    error::Error,
+    fs::File,
+    io::{BufRead, BufReader, Read, Write},
     net::TcpStream,
+    path::Path,
     sync::Arc,
 };
 
-use rustls::{ClientConfig, ClientConnection};
+use rustls::{Certificate, ClientConfig};
+use rustls_pemfile::{read_one, Item};
 
 use crate::{
     http::{
         body::HttpBody, header::HttpHeader, response::HttpResponse, status_line::HttpStatusLine,
     },
-    request::Request,
+    request::{Request, RequestBuilder},
     url::Url,
 };
 
@@ -28,7 +32,7 @@ impl SseTlsConnector {
             .with_safe_defaults()
             .with_root_certificates(Self::default_root_store())
             .with_no_client_auth();
-        ClientConnection::new(Arc::new(config), ip).unwrap()
+        rustls::ClientConnection::new(Arc::new(config), ip).unwrap()
     }
     fn default_root_store() -> rustls::RootCertStore {
         let mut root_store = rustls::RootCertStore::empty();
@@ -40,6 +44,93 @@ impl SseTlsConnector {
             )
         }));
         root_store
+    }
+}
+
+struct ClientConnection {
+    client: rustls::ClientConnection,
+    tcp_stream: TcpStream,
+}
+impl ClientConnection {
+    fn new(client: rustls::ClientConnection, tcp_stream: TcpStream) -> Self {
+        Self { client, tcp_stream }
+    }
+    fn proxy_connection(
+        url: &Url,
+        proxy_url: &Url,
+        certs: RootCertStore,
+    ) -> std::result::Result<Self, Box<dyn Error + 'static>> {
+        let client = Self::clinet(url, certs)?;
+
+        let mut tcp_stream = TcpStream::connect(proxy_url.to_addr_str())
+            .map_err(|e| SseConnectionError::IOError(e))?;
+        let req = RequestBuilder::new(url.to_addr_str().as_str()).connect_request();
+
+        tcp_stream.write_all(req.bytes())?;
+
+        let mut buf = vec![0; 4096];
+
+        // TODO
+        while let Ok(size) = tcp_stream.read(&mut buf) {
+            if size == 0 {
+                break;
+            }
+            let proxy_response = String::from_utf8_lossy(&buf[..size]);
+            if proxy_response.contains("Established") {
+                return Ok(Self::new(client, tcp_stream));
+            }
+        }
+        todo!()
+    }
+    fn default(
+        url: &Url,
+        certs: RootCertStore,
+    ) -> std::result::Result<Self, Box<dyn Error + 'static>> {
+        let tcp_stream =
+            TcpStream::connect(url.to_addr_str()).map_err(|e| SseConnectionError::IOError(e))?;
+        let client = Self::clinet(url, certs)?;
+        Ok(Self::new(client, tcp_stream))
+    }
+    fn clinet(
+        url: &Url,
+        certs: RootCertStore,
+    ) -> std::result::Result<rustls::ClientConnection, Box<dyn Error + 'static>> {
+        let ip = url.host().try_into()?;
+        let config = ClientConfig::builder()
+            .with_safe_defaults()
+            .with_root_certificates(certs.root_store)
+            .with_no_client_auth();
+        let client = rustls::ClientConnection::new(Arc::new(config), ip).unwrap();
+        Ok(client)
+    }
+}
+
+struct RootCertStore {
+    root_store: rustls::RootCertStore,
+}
+impl RootCertStore {
+    pub fn new() -> Self {
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
+            rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
+                ta.subject,
+                ta.spki,
+                ta.name_constraints,
+            )
+        }));
+        Self { root_store }
+    }
+    pub fn add_ca(&mut self, path: impl AsRef<Path>) -> std::io::Result<()> {
+        let file = File::open(path)?;
+        let mut reader = BufReader::new(file);
+        match read_one(&mut reader).unwrap().unwrap() {
+            Item::X509Certificate(cert) => {
+                let cert = Certificate(cert);
+                self.root_store.add(&cert).unwrap();
+            }
+            _ => println!("error"),
+        };
+        Ok(())
     }
 }
 
@@ -71,11 +162,11 @@ pub trait Socket {
 
 #[derive(Debug)]
 pub struct TlsSocket {
-    reader: BufReader<rustls::StreamOwned<ClientConnection, TcpStream>>,
+    reader: BufReader<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>,
 }
 impl TlsSocket {
     pub fn new(
-        tls_stream: rustls::StreamOwned<ClientConnection, TcpStream>,
+        tls_stream: rustls::StreamOwned<rustls::ClientConnection, TcpStream>,
     ) -> std::result::Result<Self, std::io::Error> {
         let reader = BufReader::new(tls_stream);
         Ok(Self { reader })
@@ -318,16 +409,20 @@ pub mod chatgpt {
 
     pub struct GptHandler {
         flag: bool,
+        res: String,
     }
     impl GptHandler {
         pub fn new() -> Self {
-            GptHandler { flag: false }
+            GptHandler {
+                flag: false,
+                res: "".to_string(),
+            }
         }
         pub fn is_success(&self) -> bool {
             self.flag
         }
     }
-    impl crate::sse::subscriber::SseMutHandler<(), ()> for GptHandler {
+    impl crate::sse::subscriber::SseMutHandler<String, ()> for GptHandler {
         fn handle(&mut self, res: SseResponse) -> HandleProgress<()> {
             let res = evaluate_chatgpt_sse_response(&res);
             match res {
@@ -338,6 +433,7 @@ pub mod chatgpt {
                 }
                 ChatGptRes::Data(data) => {
                     println!("progress: {}", data);
+                    self.res.push_str(&data);
                     HandleProgress::Progress
                 }
                 ChatGptRes::Err => {
@@ -347,8 +443,8 @@ pub mod chatgpt {
                 }
             }
         }
-        fn result(&self) -> std::result::Result<(), ()> {
-            Ok(())
+        fn result(&self) -> std::result::Result<String, ()> {
+            Ok(self.res.clone())
         }
     }
     pub enum ChatGptRes {
