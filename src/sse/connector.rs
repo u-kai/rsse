@@ -27,8 +27,6 @@ impl SseTlsConnector {
 impl SseConnector for SseTlsConnector {
     type Socket = TlsSocket;
     fn connect(&mut self, req: &Request) -> Result<SseConnection<Self::Socket>> {
-        println!("req to {:#?}", req);
-
         let url = req.url();
         let tcp_stream =
             TcpStream::connect(url.to_addr_str()).map_err(|e| SseConnectionError::IOError(e))?;
@@ -38,8 +36,7 @@ impl SseConnector for SseTlsConnector {
             .write_all(req.bytes())
             .map_err(|e| SseConnectionError::IOError(e))?;
         let socket = TlsSocket::new(tls_stream).map_err(|e| SseConnectionError::IOError(e))?;
-        let mut conn = SseConnection::new(socket);
-        conn.connect(req)?;
+        let conn = SseConnection::new(socket);
         Ok(conn)
     }
 }
@@ -51,42 +48,29 @@ pub trait SseConnector {
 
 pub trait Socket {
     fn read_line(&mut self) -> std::result::Result<Option<String>, std::io::Error>;
-    fn write(&mut self, data: &[u8]) -> std::result::Result<(), std::io::Error>;
 }
 
 #[derive(Debug)]
 pub struct TlsSocket {
     reader: BufReader<rustls::StreamOwned<ClientConnection, TcpStream>>,
-    //tls_stream: rustls::StreamOwned<ClientConnection, TcpStream>,
 }
 impl TlsSocket {
     pub fn new(
         tls_stream: rustls::StreamOwned<ClientConnection, TcpStream>,
     ) -> std::result::Result<Self, std::io::Error> {
-        //        let tcp_stream = TcpStream::connect(url.to_addr_str())?;
-        //        let client = default_client_connection(url);
-        //        let tls_stream = rustls::StreamOwned::new(client, tcp_stream);
         let reader = BufReader::new(tls_stream);
         Ok(Self { reader })
-        //Ok(Self { tls_stream })
     }
 }
 impl Socket for TlsSocket {
     fn read_line(&mut self) -> std::result::Result<Option<String>, std::io::Error> {
         let mut buf = String::new();
-        // readerがdropされるとtls_streamがdropされるので、
-        // それによって正確な値が返ってない?
-        //let mut reader = BufReader::new(&mut self.tls_stream);
         let size = self.reader.read_line(&mut buf)?;
         if size == 0 {
             Ok(None)
         } else {
             Ok(Some(buf))
         }
-    }
-    fn write(&mut self, data: &[u8]) -> std::result::Result<(), std::io::Error> {
-        //self.tls_stream.write(data)?;
-        Ok(())
     }
 }
 
@@ -117,12 +101,6 @@ pub struct SseConnection<S: Socket> {
 impl<S: Socket> SseConnection<S> {
     pub fn new(conn: S) -> Self {
         Self { conn }
-    }
-    pub fn connect(&mut self, req: &Request) -> Result<()> {
-        self.conn
-            .write(req.bytes())
-            .map_err(|e| SseConnectionError::IOError(e))?;
-        Ok(())
     }
     pub fn read(&mut self) -> Result<ConnectedSseResponse> {
         while let Some(line) = self
@@ -392,9 +370,6 @@ pub(crate) mod fakes {
                 return Ok(None);
             }
             Ok(Some(self.responses.remove(0)))
-        }
-        fn write(&mut self, _data: &[u8]) -> std::result::Result<(), std::io::Error> {
-            Ok(())
         }
     }
 }
