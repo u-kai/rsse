@@ -167,106 +167,44 @@ mod tests {
     use crate::{
         http::{body::HttpBody, response::HttpResponse},
         request::RequestBuilder,
-        sse::connector::fakes::FakeTcpConnection,
+        sse::connector::{
+            chatgpt::{chatgpt_key, evaluate_chatgpt_response, message, ChatGptRes, URL},
+            fakes::FakeTcpConnection,
+        },
     };
 
     use super::*;
-    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-    struct ChatRequest {
-        model: OpenAIModel,
-        messages: Vec<Message>,
-        stream: bool,
-    }
-
-    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-    pub struct Message {
-        role: Role,
-        content: String,
-    }
-    #[derive(Debug, Clone, serde::Deserialize, PartialEq, Eq)]
-    pub enum Role {
-        User,
-        Assistant,
-    }
-    impl Role {
-        fn into_str(&self) -> &'static str {
-            match self {
-                Self::User => "user",
-                Self::Assistant => "assistant",
-            }
-        }
-    }
-    impl serde::Serialize for Role {
-        fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            let role: &str = self.into_str();
-            serializer.serialize_str(role)
-        }
-    }
-    #[derive(Debug, Clone, serde::Deserialize)]
-    pub enum OpenAIModel {
-        Gpt3Dot5Turbo,
-    }
-    impl serde::Serialize for OpenAIModel {
-        fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-        where
-            S: serde::ser::Serializer,
-        {
-            serializer.serialize_str(self.into_str())
-        }
-    }
-
-    impl OpenAIModel {
-        pub fn into_str(&self) -> &'static str {
-            match self {
-                Self::Gpt3Dot5Turbo => "gpt-3.5-turbo",
-            }
-        }
-    }
-    impl Into<&'static str> for OpenAIModel {
-        fn into(self) -> &'static str {
-            self.into_str()
-        }
-    }
     #[test]
     #[ignore = "実際の通信を行うため"]
     fn chatgptにtlsで通信する() {
-        let url = "https://api.openai.com/v1/chat/completions";
-        let req = RequestBuilder::new(url)
+        let req = RequestBuilder::new(URL)
             .post()
-            .bearer_auth(std::env::var("OPENAI_API_KEY").unwrap().as_str())
-            .json(&ChatRequest {
-                model: OpenAIModel::Gpt3Dot5Turbo,
-                messages: vec![Message {
-                    role: Role::User,
-                    content: "Hello".to_string(),
-                }],
-                stream: true,
-            })
+            .bearer_auth(&chatgpt_key())
+            .json(message("hello"))
             .build();
         let mut tls_connector = SseTlsConnector::new();
         let mut conn = tls_connector.connect(&req).unwrap();
         let mut result = conn.read();
         let mut flag = false;
         while let Ok(res) = &result {
-            if let ConnectedSseResponse::Done = res.clone() {
-                println!("close done");
-                flag = true;
-                break;
-            }
-            if let ConnectedSseResponse::Progress(SseResponse::Data(data)) = res.clone() {
-                if "[DONE]".contains(&data) {
-                    println!("gpt done");
+            let chatgpt_res = evaluate_chatgpt_response(res);
+            match chatgpt_res {
+                ChatGptRes::Done => {
+                    println!("done");
                     flag = true;
                     break;
                 }
-                println!("data : {}", data);
-                result = conn.read();
-                continue;
+                ChatGptRes::Data(data) => {
+                    println!("progress: {}", data);
+                    result = conn.read();
+                    continue;
+                }
+                ChatGptRes::Err => {
+                    flag = false;
+                    println!("err");
+                    break;
+                }
             }
-            result = conn.read();
         }
         assert!(flag);
     }
@@ -370,5 +308,105 @@ pub(crate) mod fakes {
             }
             Ok(Some(self.responses.remove(0)))
         }
+    }
+}
+#[cfg(test)]
+pub mod chatgpt {
+    use crate::sse::response::SseResponse;
+
+    use super::ConnectedSseResponse;
+
+    pub enum ChatGptRes {
+        Done,
+        Data(String),
+        Err,
+    }
+    pub fn evaluate_chatgpt_response(res: &ConnectedSseResponse) -> ChatGptRes {
+        match res {
+            ConnectedSseResponse::Done => ChatGptRes::Done,
+            ConnectedSseResponse::Progress(SseResponse::Data(data)) => {
+                if "[DONE]".contains(data) {
+                    ChatGptRes::Done
+                } else {
+                    ChatGptRes::Data(data.to_string())
+                }
+            }
+            _ => ChatGptRes::Err,
+        }
+    }
+
+    pub const URL: &'static str = "https://api.openai.com/v1/chat/completions";
+    pub fn message(mes: &str) -> ChatRequest {
+        ChatRequest {
+            model: OpenAIModel::Gpt3Dot5Turbo,
+            messages: vec![Message {
+                role: Role::User,
+                content: mes.to_string(),
+            }],
+            stream: true,
+        }
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    pub struct ChatRequest {
+        model: OpenAIModel,
+        messages: Vec<Message>,
+        stream: bool,
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    pub struct Message {
+        role: Role,
+        content: String,
+    }
+    #[derive(Debug, Clone, serde::Deserialize, PartialEq, Eq)]
+    pub enum Role {
+        User,
+        Assistant,
+    }
+    impl Role {
+        fn into_str(&self) -> &'static str {
+            match self {
+                Self::User => "user",
+                Self::Assistant => "assistant",
+            }
+        }
+    }
+    impl serde::Serialize for Role {
+        fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+        where
+            S: serde::Serializer,
+        {
+            let role: &str = self.into_str();
+            serializer.serialize_str(role)
+        }
+    }
+    #[derive(Debug, Clone, serde::Deserialize)]
+    pub enum OpenAIModel {
+        Gpt3Dot5Turbo,
+    }
+    impl serde::Serialize for OpenAIModel {
+        fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+        where
+            S: serde::ser::Serializer,
+        {
+            serializer.serialize_str(self.into_str())
+        }
+    }
+
+    impl OpenAIModel {
+        pub fn into_str(&self) -> &'static str {
+            match self {
+                Self::Gpt3Dot5Turbo => "gpt-3.5-turbo",
+            }
+        }
+    }
+    impl Into<&'static str> for OpenAIModel {
+        fn into(self) -> &'static str {
+            self.into_str()
+        }
+    }
+    pub fn chatgpt_key() -> String {
+        std::env::var("OPENAI_API_KEY").unwrap()
     }
 }

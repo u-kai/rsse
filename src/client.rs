@@ -2,7 +2,7 @@ use crate::{
     request::{Request, RequestBuilder},
     sse::{
         connector::{SseConnector, SseTlsConnector},
-        subscriber::{SseHandler, SseSubscriber},
+        subscriber::{SseHandler, SseMutHandler, SseSubscriber},
     },
     url::Url,
 };
@@ -26,10 +26,6 @@ impl SseClientBuilder<SseTlsConnector> {
 }
 
 impl<C: SseConnector> SseClientBuilder<C> {
-    pub fn post(mut self) -> Self {
-        self.req = self.req.post();
-        self
-    }
     pub fn set_connector<NewC>(mut self, connector: NewC) -> SseClientBuilder<NewC>
     where
         NewC: SseConnector,
@@ -39,12 +35,24 @@ impl<C: SseConnector> SseClientBuilder<C> {
             connector,
         }
     }
+    pub fn post(mut self) -> Self {
+        self.req = self.req.post();
+        self
+    }
     pub fn get(mut self) -> Self {
         self.req = self.req.get();
         self
     }
     pub fn json<S: serde::Serialize>(mut self, json: S) -> Self {
         self.req = self.req.json(json);
+        self
+    }
+    pub fn header(mut self, key: &str, value: &str) -> Self {
+        self.req = self.req.header(key, value);
+        self
+    }
+    pub fn bearer_auth(mut self, token: &str) -> Self {
+        self.req = self.req.bearer_auth(token);
         self
     }
     pub fn build(self) -> SseClient<C> {
@@ -60,6 +68,12 @@ impl<C: SseConnector> SseClient<C> {
         handler: &T,
     ) -> Result<(), crate::sse::subscriber::SseSubscribeError> {
         self.subscriber.subscribe(&self.req, handler)
+    }
+    pub fn send_mut<T: SseMutHandler>(
+        &mut self,
+        handler: &mut T,
+    ) -> Result<(), crate::sse::subscriber::SseSubscribeError> {
+        self.subscriber.subscribe_mut(&self.req, handler)
     }
 }
 
