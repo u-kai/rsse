@@ -15,6 +15,7 @@ pub struct SseClient<C: SseConnector> {
     subscriber: SseSubscriber<C>,
 }
 pub struct SseClientBuilder<C: SseConnector> {
+    url: Url,
     req: RequestBuilder,
     connector: C,
 }
@@ -22,6 +23,7 @@ impl SseClientBuilder<SseTlsConnector> {
     pub fn new(url: impl Into<Url>) -> SseClientBuilder<SseTlsConnector> {
         let url = url.into();
         SseClientBuilder {
+            url: url.clone(),
             req: RequestBuilder::new(url.clone()),
             connector: SseTlsConnectorBuilder::new(url).build().unwrap(),
         }
@@ -29,11 +31,12 @@ impl SseClientBuilder<SseTlsConnector> {
 }
 
 impl<C: SseConnector> SseClientBuilder<C> {
-    pub fn set_connector<NewC>(mut self, connector: NewC) -> SseClientBuilder<NewC>
+    pub fn set_connector<NewC>(self, connector: NewC) -> SseClientBuilder<NewC>
     where
         NewC: SseConnector,
     {
         SseClientBuilder {
+            url: self.url,
             req: self.req,
             connector,
         }
@@ -57,6 +60,23 @@ impl<C: SseConnector> SseClientBuilder<C> {
     pub fn bearer_auth(mut self, token: &str) -> Self {
         self.req = self.req.bearer_auth(token);
         self
+    }
+    pub fn proxy(
+        self,
+        proxy: &str,
+    ) -> std::result::Result<SseClientBuilder<SseTlsConnector>, Box<dyn std::error::Error + 'static>>
+    {
+        println!("proxy: {}", proxy);
+        println!("url: {:#?}", self.url);
+        let connector = SseTlsConnectorBuilder::new(&self.url)
+            .proxy(proxy)
+            .build()?;
+
+        Ok(SseClientBuilder {
+            url: self.url,
+            req: self.req,
+            connector,
+        })
     }
     pub fn build(self) -> SseClient<C> {
         SseClient {
@@ -87,23 +107,24 @@ mod tests {
         response::SseResponse,
     };
 
-    //#[test]
-    //#[ignore = "dockerによるproxyが必要のため"]
-    //fn proxyに対して通信可能() {
-    //    let mut gpt_handler = GptHandler::new();
-    //    let mut sut = SseClientBuilder::new(URL)
-    //        .post()
-    //        .json(message("Hello"))
-    //        .proxy("http://localhost:8000")
-    //        .bearer_auth(&chatgpt_key())
-    //        .build();
+    #[test]
+    #[ignore = "dockerによるproxyが必要のため"]
+    fn proxyに対して通信可能() {
+        let mut gpt_handler = GptHandler::new();
+        let mut sut = SseClientBuilder::new(URL)
+            .post()
+            .json(message("Hello"))
+            .proxy("http://localhost:8080")
+            .unwrap()
+            .bearer_auth(&chatgpt_key())
+            .build();
 
-    //    let result = sut.send_mut(&mut gpt_handler).unwrap();
+        let result = sut.send_mut(&mut gpt_handler).unwrap();
 
-    //    println!("gpt > {:?}", result);
-    //    assert!(result.len() > 0);
-    //    assert!(gpt_handler.is_success());
-    //}
+        println!("gpt > {:?}", result);
+        assert!(result.len() > 0);
+        assert!(gpt_handler.is_success());
+    }
     #[test]
     #[ignore = "実際の通信を行うため"]
     fn chatgptに通信する() {

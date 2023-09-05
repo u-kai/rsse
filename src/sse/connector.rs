@@ -95,13 +95,14 @@ impl ClientConnection {
 
         let mut tcp_stream = TcpStream::connect(proxy_url.to_addr_str())
             .map_err(|e| SseConnectionError::IOError(e))?;
-        let req = RequestBuilder::new(url.to_addr_str().as_str()).connect_request();
+        let req = RequestBuilder::new(url).connect_request();
 
         tcp_stream.write_all(req.bytes())?;
 
         let mut buf = vec![0; 4096];
 
         // TODO
+        //
         while let Ok(size) = tcp_stream.read(&mut buf) {
             if size == 0 {
                 break;
@@ -110,6 +111,7 @@ impl ClientConnection {
             if proxy_response.contains("Established") {
                 return Ok(Self::new(client, tcp_stream));
             }
+            println!("{}", proxy_response);
         }
         todo!()
     }
