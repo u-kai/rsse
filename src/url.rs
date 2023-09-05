@@ -76,6 +76,11 @@ impl Into<Url> for &str {
         Url::from_str(self).unwrap()
     }
 }
+impl Into<Url> for &Url {
+    fn into(self) -> Url {
+        self.clone()
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 enum Schema {

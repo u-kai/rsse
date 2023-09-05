@@ -3,7 +3,7 @@ use std::{io::Write, net::TcpStream};
 use crate::{
     request::{Request, RequestBuilder},
     sse::{
-        connector::{SseConnectionError, SseConnector, SseTlsConnector},
+        connector::{SseConnectionError, SseConnector, SseTlsConnector, SseTlsConnectorBuilder},
         subscriber::{Result, SseHandler, SseMutHandler, SseSubscribeError, SseSubscriber},
     },
     url::Url,
@@ -23,7 +23,7 @@ impl SseClientBuilder<SseTlsConnector> {
         let url = url.into();
         SseClientBuilder {
             req: RequestBuilder::new(url.clone()),
-            connector: SseTlsConnector::default(&url).unwrap(),
+            connector: SseTlsConnectorBuilder::new(url).build().unwrap(),
         }
     }
 }
