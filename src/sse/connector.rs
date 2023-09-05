@@ -43,10 +43,12 @@ impl SseTlsConnectorBuilder {
             .push(ca_path.as_ref().to_str().unwrap().to_string());
         self
     }
+
     pub fn proxy(mut self, proxy_url: impl Into<Url>) -> Self {
         self.proxy_url = Some(proxy_url.into());
         self
     }
+
     pub fn build(self) -> std::result::Result<SseTlsConnector, Box<dyn Error + 'static>> {
         // set ca
         let mut ca = RootCertStore::new();
@@ -113,7 +115,6 @@ impl ClientConnection {
             if proxy_response.contains("Established") {
                 return Ok(Self::new(client, tcp_stream));
             }
-            println!("{}", proxy_response);
         }
         todo!()
     }
@@ -189,8 +190,10 @@ pub trait Socket {
     fn write_all(&mut self, buf: &[u8]) -> std::result::Result<(), std::io::Error>;
 }
 
-pub trait Stream: std::io::Write + std::io::Read {
-    fn arc_clone(&self) -> Self;
+pub trait Stream: std::io::Write + std::io::Read + Sized {
+    //fn arc_clone(&self) -> Self;
+    fn reader(&self) -> BufReader<Self>;
+    fn writer(&self) -> BufWriter<Self>;
 }
 
 #[derive(Debug)]
@@ -209,9 +212,13 @@ impl StreamOwned {
     }
 }
 impl Stream for StreamOwned {
-    fn arc_clone(&self) -> Self {
+    fn reader(&self) -> BufReader<Self> {
         let client = Arc::clone(&self.client);
-        Self { client }
+        BufReader::new(Self { client })
+    }
+    fn writer(&self) -> BufWriter<Self> {
+        let client = Arc::clone(&self.client);
+        BufWriter::new(Self { client })
     }
 }
 impl std::io::Read for StreamOwned {
@@ -235,9 +242,10 @@ pub struct TlsSocket<S: Stream> {
 }
 impl<S: Stream + Debug> TlsSocket<S> {
     fn new(stream: S) -> Self {
-        let writer = BufWriter::new(stream.arc_clone());
-        let reader = BufReader::new(stream.arc_clone());
-        Self { reader, writer }
+        Self {
+            reader: stream.reader(),
+            writer: stream.writer(),
+        }
     }
 }
 impl<S: Stream + Debug> Socket for TlsSocket<S> {
