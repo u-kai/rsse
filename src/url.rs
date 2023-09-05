@@ -1,3 +1,5 @@
+use thiserror::Error;
+
 #[derive(Debug, Clone)]
 pub struct Url {
     scheme: Schema,
@@ -111,18 +113,12 @@ impl Schema {
 }
 
 pub type Result<T> = std::result::Result<T, UrlError>;
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum UrlError {
+    #[error("Invalid schema: {0}")]
     InvalidSchema(String),
+    #[error("Invalid string: {0}")]
     InvalidString(String),
-}
-impl UrlError {
-    pub fn to_string(&self) -> String {
-        match self {
-            UrlError::InvalidSchema(s) => format!("Invalid schema: {}", s),
-            UrlError::InvalidString(s) => format!("Invalid string: {}", s),
-        }
-    }
 }
 #[cfg(test)]
 mod tests {

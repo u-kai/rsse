@@ -23,11 +23,12 @@ use crate::{
 use super::response::SseResponse;
 pub type Result<T> = std::result::Result<T, SseConnectionError>;
 
-pub struct SseTlsConnectorBuilder {
+pub(crate) struct SseTlsConnectorBuilder {
     url: Url,
     ca_paths: Vec<String>,
     proxy_url: Option<Url>,
 }
+
 impl SseTlsConnectorBuilder {
     pub fn new(url: impl Into<Url>) -> Self {
         Self {
@@ -36,6 +37,7 @@ impl SseTlsConnectorBuilder {
             proxy_url: None,
         }
     }
+
     pub fn add_ca(mut self, ca_path: impl AsRef<Path>) -> Self {
         self.ca_paths
             .push(ca_path.as_ref().to_str().unwrap().to_string());

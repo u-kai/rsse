@@ -1,5 +1,3 @@
-use std::{io::Write, net::TcpStream};
-
 use crate::{
     request::{Request, RequestBuilder},
     sse::{
@@ -66,8 +64,6 @@ impl<C: SseConnector> SseClientBuilder<C> {
         proxy: &str,
     ) -> std::result::Result<SseClientBuilder<SseTlsConnector>, Box<dyn std::error::Error + 'static>>
     {
-        println!("proxy: {}", proxy);
-        println!("url: {:#?}", self.url);
         let connector = SseTlsConnectorBuilder::new(&self.url)
             .proxy(proxy)
             .build()?;
