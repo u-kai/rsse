@@ -1,7 +1,9 @@
 use std::{
+    cell::RefCell,
     error::Error,
+    fmt::Debug,
     fs::File,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, BufWriter, Read, Write},
     net::TcpStream,
     path::Path,
     sync::Arc,
@@ -20,34 +22,35 @@ use crate::{
 
 use super::response::SseResponse;
 pub type Result<T> = std::result::Result<T, SseConnectionError>;
-pub struct SseTlsConnector {}
+pub struct SseTlsConnector {
+    //client_connection: ClientConnection,
+    conn: SseConnection<TlsSocket<StreamOwned>>,
+}
 
 impl SseTlsConnector {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(client_connection: ClientConnection) -> Self {
+        let stream = StreamOwned::new(client_connection);
+        let socket = TlsSocket::new(stream);
+        Self {
+            conn: SseConnection::new(socket),
+        }
     }
-    fn default_client_connection(url: &Url) -> rustls::ClientConnection {
-        let ip = url.host().try_into().unwrap();
-        let config = ClientConfig::builder()
-            .with_safe_defaults()
-            .with_root_certificates(Self::default_root_store())
-            .with_no_client_auth();
-        rustls::ClientConnection::new(Arc::new(config), ip).unwrap()
+    pub fn default(url: &Url) -> std::result::Result<Self, Box<dyn Error + 'static>> {
+        let client_connection = ClientConnection::default(url, RootCertStore::new())?;
+        Ok(Self::new(client_connection))
     }
-    fn default_root_store() -> rustls::RootCertStore {
-        let mut root_store = rustls::RootCertStore::empty();
-        root_store.add_server_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
-            rustls::OwnedTrustAnchor::from_subject_spki_name_constraints(
-                ta.subject,
-                ta.spki,
-                ta.name_constraints,
-            )
-        }));
-        root_store
+    pub fn with_ca(
+        url: &Url,
+        ca_path: impl AsRef<Path>,
+    ) -> std::result::Result<Self, Box<dyn Error + 'static>> {
+        let mut ca = RootCertStore::new();
+        ca.add_ca(ca_path)?;
+        let client_connection = ClientConnection::default(url, ca)?;
+        Ok(Self::new(client_connection))
     }
 }
 
-struct ClientConnection {
+pub struct ClientConnection {
     client: rustls::ClientConnection,
     tcp_stream: TcpStream,
 }
@@ -135,44 +138,85 @@ impl RootCertStore {
 }
 
 impl SseConnector for SseTlsConnector {
-    type Socket = TlsSocket;
-    fn connect(&mut self, req: &Request) -> Result<SseConnection<Self::Socket>> {
+    type Socket = TlsSocket<StreamOwned>;
+    fn connect(&mut self, req: &Request) -> Result<&mut SseConnection<Self::Socket>> {
         let url = req.url();
-        let tcp_stream =
-            TcpStream::connect(url.to_addr_str()).map_err(|e| SseConnectionError::IOError(e))?;
-        let client = Self::default_client_connection(url);
-        let mut tls_stream = rustls::StreamOwned::new(client, tcp_stream);
-        tls_stream
-            .write_all(req.bytes())
+        //let mut tls_stream = rustls::StreamOwned::new(
+        //    &mut self.client_connection.client,
+        //    &mut self.client_connection.tcp_stream,
+        //);
+        //tls_stream
+        self.conn
+            .write(req.bytes())
             .map_err(|e| SseConnectionError::IOError(e))?;
-        let socket = TlsSocket::new(tls_stream).map_err(|e| SseConnectionError::IOError(e))?;
-        let conn = SseConnection::new(socket);
-        Ok(conn)
+        Ok(&mut self.conn)
     }
 }
 
 pub trait SseConnector {
     type Socket: Socket;
-    fn connect(&mut self, req: &Request) -> Result<SseConnection<Self::Socket>>;
+    fn connect(&mut self, req: &Request) -> Result<&mut SseConnection<Self::Socket>>;
 }
 
 pub trait Socket {
     fn read_line(&mut self) -> std::result::Result<Option<String>, std::io::Error>;
+    fn write_all(&mut self, buf: &[u8]) -> std::result::Result<(), std::io::Error>;
+}
+
+pub trait Stream: std::io::Write + std::io::Read {
+    fn arc_clone(&self) -> Self;
 }
 
 #[derive(Debug)]
-pub struct TlsSocket {
-    reader: BufReader<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>,
+pub struct StreamOwned {
+    //client: Arc<RefCell<ClientConnection>>,
+    client: Arc<RefCell<rustls::StreamOwned<rustls::ClientConnection, TcpStream>>>,
 }
-impl TlsSocket {
-    pub fn new(
-        tls_stream: rustls::StreamOwned<rustls::ClientConnection, TcpStream>,
-    ) -> std::result::Result<Self, std::io::Error> {
-        let reader = BufReader::new(tls_stream);
-        Ok(Self { reader })
+
+impl StreamOwned {
+    fn new(client: ClientConnection) -> Self {
+        Self {
+            client: Arc::new(RefCell::new(rustls::StreamOwned::new(
+                client.client,
+                client.tcp_stream,
+            ))),
+        }
     }
 }
-impl Socket for TlsSocket {
+impl Stream for StreamOwned {
+    fn arc_clone(&self) -> Self {
+        let client = Arc::clone(&self.client);
+        Self { client }
+    }
+}
+impl std::io::Read for StreamOwned {
+    fn read(&mut self, buf: &mut [u8]) -> std::result::Result<usize, std::io::Error> {
+        self.client.borrow_mut().read(buf)
+    }
+}
+impl std::io::Write for StreamOwned {
+    fn write(&mut self, buf: &[u8]) -> std::result::Result<usize, std::io::Error> {
+        self.client.borrow_mut().write(buf)
+    }
+    fn flush(&mut self) -> std::result::Result<(), std::io::Error> {
+        self.client.borrow_mut().flush()
+    }
+}
+
+#[derive(Debug)]
+pub struct TlsSocket<S: Stream> {
+    reader: BufReader<S>,
+    writer: BufWriter<S>, //reader: BufReader<rustls::Stream<'a, rustls::ClientConnection, TcpStream>>,
+                          //conn: S,
+}
+impl<S: Stream + Debug> TlsSocket<S> {
+    pub fn new(stream: S) -> Self {
+        let writer = BufWriter::new(stream.arc_clone());
+        let reader = BufReader::new(stream.arc_clone());
+        Self { reader, writer }
+    }
+}
+impl<S: Stream + Debug> Socket for TlsSocket<S> {
     fn read_line(&mut self) -> std::result::Result<Option<String>, std::io::Error> {
         let mut buf = String::new();
         let size = self.reader.read_line(&mut buf)?;
@@ -181,6 +225,11 @@ impl Socket for TlsSocket {
         } else {
             Ok(Some(buf))
         }
+    }
+    fn write_all(&mut self, buf: &[u8]) -> std::result::Result<(), std::io::Error> {
+        self.writer.write_all(buf)?;
+        self.writer.flush()?;
+        Ok(())
     }
 }
 
@@ -191,6 +240,9 @@ pub struct SseConnection<S: Socket> {
 impl<S: Socket> SseConnection<S> {
     pub fn new(conn: S) -> Self {
         Self { conn }
+    }
+    pub fn write(&mut self, buf: &[u8]) -> std::result::Result<(), std::io::Error> {
+        self.conn.write_all(buf)
     }
     pub fn read(&mut self) -> Result<ConnectedSseResponse> {
         while let Some(line) = self
@@ -273,8 +325,8 @@ mod tests {
             .bearer_auth(&chatgpt_key())
             .json(message("hello"))
             .build();
-        let mut tls_connector = SseTlsConnector::new();
-        let mut conn = tls_connector.connect(&req).unwrap();
+        let mut tls_connector = SseTlsConnector::default(req.url()).unwrap();
+        let conn = tls_connector.connect(&req).unwrap();
         let mut result = conn.read();
         let mut flag = false;
         while let Ok(res) = &result {
@@ -298,6 +350,20 @@ mod tests {
             }
         }
         assert!(flag);
+    }
+    #[test]
+    fn tls_socketは書き込みもできる() {
+        let url: Url = "https://www.google.com".into();
+        let client = ClientConnection::default(&url, RootCertStore::new()).unwrap();
+        let stream = StreamOwned::new(client);
+        let mut socket = TlsSocket::new(stream);
+        socket
+            .write_all("GET / HTTP/1.1\r\nHost: www.google.com:443\r\n\r\n".as_bytes())
+            .unwrap();
+        let res = socket.read_line().unwrap();
+        println!("{:#?}", res);
+        assert!(res.is_some());
+        assert_eq!(res.unwrap(), "HTTP/1.1 200 OK\r\n");
     }
     #[test]
     fn sse_connectionはデータを接続相手から受け取りsseのレスポンスを返す() {
@@ -373,9 +439,10 @@ pub(crate) mod fakes {
         fn connect(
             &mut self,
             _req: &super::Request,
-        ) -> std::result::Result<SseConnection<FakeTcpConnection>, SseConnectionError> {
+        ) -> std::result::Result<&mut SseConnection<FakeTcpConnection>, SseConnectionError>
+        {
             self.connected_times += 1;
-            Ok(self.connection.clone())
+            Ok(&mut self.connection)
         }
     }
     #[derive(Debug, Clone)]
@@ -393,6 +460,9 @@ pub(crate) mod fakes {
         }
     }
     impl Socket for FakeTcpConnection {
+        fn write_all(&mut self, _buf: &[u8]) -> std::result::Result<(), std::io::Error> {
+            Ok(())
+        }
         fn read_line(&mut self) -> std::result::Result<Option<String>, std::io::Error> {
             if self.responses.is_empty() {
                 return Ok(None);

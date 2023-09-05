@@ -20,9 +20,10 @@ pub struct SseClientBuilder<C: SseConnector> {
 }
 impl SseClientBuilder<SseTlsConnector> {
     pub fn new(url: impl Into<Url>) -> SseClientBuilder<SseTlsConnector> {
+        let url = url.into();
         SseClientBuilder {
-            req: RequestBuilder::new(url),
-            connector: SseTlsConnector::new(),
+            req: RequestBuilder::new(url.clone()),
+            connector: SseTlsConnector::default(&url).unwrap(),
         }
     }
 }

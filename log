@@ -1,0 +1,52 @@
+
+running 2 tests
+progress: {"id":"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7","object":"chat.completion.chunk","created":1693914117,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7","object":"chat.completion.chunk","created":1693914117,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7","object":"chat.completion.chunk","created":1693914117,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":"!"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7","object":"chat.completion.chunk","created":1693914117,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":" How"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7","object":"chat.completion.chunk","created":1693914117,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":" can"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7","object":"chat.completion.chunk","created":1693914117,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":" I"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7","object":"chat.completion.chunk","created":1693914117,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":" assist"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7","object":"chat.completion.chunk","created":1693914117,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":" you"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7","object":"chat.completion.chunk","created":1693914117,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":" today"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7","object":"chat.completion.chunk","created":1693914117,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":"?"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7","object":"chat.completion.chunk","created":1693914117,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+done
+gpt > "{\"id\":\"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7\",\"object\":\"chat.completion.chunk\",\"created\":1693914117,\"model\":\"gpt-3.5-turbo-0613\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":null}]}{\"id\":\"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7\",\"object\":\"chat.completion.chunk\",\"created\":1693914117,\"model\":\"gpt-3.5-turbo-0613\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}{\"id\":\"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7\",\"object\":\"chat.completion.chunk\",\"created\":1693914117,\"model\":\"gpt-3.5-turbo-0613\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"!\"},\"finish_reason\":null}]}{\"id\":\"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7\",\"object\":\"chat.completion.chunk\",\"created\":1693914117,\"model\":\"gpt-3.5-turbo-0613\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" How\"},\"finish_reason\":null}]}{\"id\":\"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7\",\"object\":\"chat.completion.chunk\",\"created\":1693914117,\"model\":\"gpt-3.5-turbo-0613\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" can\"},\"finish_reason\":null}]}{\"id\":\"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7\",\"object\":\"chat.completion.chunk\",\"created\":1693914117,\"model\":\"gpt-3.5-turbo-0613\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" I\"},\"finish_reason\":null}]}{\"id\":\"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7\",\"object\":\"chat.completion.chunk\",\"created\":1693914117,\"model\":\"gpt-3.5-turbo-0613\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" assist\"},\"finish_reason\":null}]}{\"id\":\"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7\",\"object\":\"chat.completion.chunk\",\"created\":1693914117,\"model\":\"gpt-3.5-turbo-0613\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" you\"},\"finish_reason\":null}]}{\"id\":\"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7\",\"object\":\"chat.completion.chunk\",\"created\":1693914117,\"model\":\"gpt-3.5-turbo-0613\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" today\"},\"finish_reason\":null}]}{\"id\":\"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7\",\"object\":\"chat.completion.chunk\",\"created\":1693914117,\"model\":\"gpt-3.5-turbo-0613\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"?\"},\"finish_reason\":null}]}{\"id\":\"chatcmpl-7vOjN1LInShFssyD9rPrz6Y4wG1H7\",\"object\":\"chat.completion.chunk\",\"created\":1693914117,\"model\":\"gpt-3.5-turbo-0613\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}"
+test client::tests::chatgptに通信する ... ok
+progress: {"id":"chatcmpl-7vOjOOopQX69JKQqTZOCeCaGgVLT1","object":"chat.completion.chunk","created":1693914118,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjOOopQX69JKQqTZOCeCaGgVLT1","object":"chat.completion.chunk","created":1693914118,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjOOopQX69JKQqTZOCeCaGgVLT1","object":"chat.completion.chunk","created":1693914118,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":"!"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjOOopQX69JKQqTZOCeCaGgVLT1","object":"chat.completion.chunk","created":1693914118,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":" How"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjOOopQX69JKQqTZOCeCaGgVLT1","object":"chat.completion.chunk","created":1693914118,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":" can"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjOOopQX69JKQqTZOCeCaGgVLT1","object":"chat.completion.chunk","created":1693914118,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":" I"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjOOopQX69JKQqTZOCeCaGgVLT1","object":"chat.completion.chunk","created":1693914118,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":" assist"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjOOopQX69JKQqTZOCeCaGgVLT1","object":"chat.completion.chunk","created":1693914118,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":" you"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjOOopQX69JKQqTZOCeCaGgVLT1","object":"chat.completion.chunk","created":1693914118,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":" today"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjOOopQX69JKQqTZOCeCaGgVLT1","object":"chat.completion.chunk","created":1693914118,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{"content":"?"},"finish_reason":null}]}
+progress: {"id":"chatcmpl-7vOjOOopQX69JKQqTZOCeCaGgVLT1","object":"chat.completion.chunk","created":1693914118,"model":"gpt-3.5-turbo-0613","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+done
+test sse::connector::tests::chatgptにtlsで通信する ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 49 filtered out; finished in 2.05s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
