@@ -191,7 +191,6 @@ pub trait Socket {
 }
 
 pub trait Stream: std::io::Write + std::io::Read + Sized {
-    //fn arc_clone(&self) -> Self;
     fn reader(&self) -> BufReader<Self>;
     fn writer(&self) -> BufWriter<Self>;
 }

@@ -74,6 +74,18 @@ impl<C: SseConnector> SseClientBuilder<C> {
             connector,
         })
     }
+    pub fn add_ca(
+        self,
+        ca: &str,
+    ) -> std::result::Result<SseClientBuilder<SseTlsConnector>, Box<dyn std::error::Error + 'static>>
+    {
+        let connector = SseTlsConnectorBuilder::new(&self.url).add_ca(ca).build()?;
+        Ok(SseClientBuilder {
+            url: self.url,
+            req: self.req,
+            connector,
+        })
+    }
     pub fn build(self) -> SseClient<C> {
         SseClient {
             req: self.req.build(),
