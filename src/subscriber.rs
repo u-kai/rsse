@@ -74,7 +74,7 @@ impl SubscriberBuilder {
     pub fn new(url: &str) -> Self {
         Self {
             root_store: Self::default_ca(),
-            request_builder: RequestBuilder::new(url),
+            request_builder: RequestBuilder::new(Url::from_str(url).unwrap()),
         }
     }
     pub fn add_ca(mut self, ca_path: impl AsRef<Path>) -> Result<Self> {

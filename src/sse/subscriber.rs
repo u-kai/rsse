@@ -173,7 +173,9 @@ mod tests {
             result: String::new(),
         };
         let mut sut = SseSubscriber::new(connector);
-        let request = RequestBuilder::new("https://www.fake").get().build();
+        let request = RequestBuilder::new(&"https://www.fake".try_into().unwrap())
+            .get()
+            .build();
 
         let result = sut.subscribe_mut(&request, &mut handler).unwrap();
 
@@ -190,7 +192,9 @@ mod tests {
 
         let handler = MockHandler::new();
         let mut sut = SseSubscriber::new(connector);
-        let request = RequestBuilder::new("https://www.fake").get().build();
+        let request = RequestBuilder::new(&"https://www.fake".try_into().unwrap())
+            .get()
+            .build();
 
         sut.subscribe(&request, &handler).unwrap();
 
@@ -212,7 +216,9 @@ mod tests {
 
         let handler = MockHandler::new();
         let mut sut = SseSubscriber::new(connector);
-        let request = RequestBuilder::new("https://www.fake").get().build();
+        let request = RequestBuilder::new(&"https://www.fake".try_into().unwrap())
+            .get()
+            .build();
 
         sut.subscribe(&request, &handler).unwrap();
 
@@ -234,7 +240,9 @@ mod tests {
 
         let mut handler = MockMutHandler::new();
         let mut sut = SseSubscriber::new(connector);
-        let request = RequestBuilder::new("https://www.fake").get().build();
+        let request = RequestBuilder::new(&"https://www.fake".try_into().unwrap())
+            .get()
+            .build();
 
         sut.subscribe_mut(&request, &mut handler).unwrap();
 
@@ -254,7 +262,9 @@ mod tests {
 
         let mut handler = MockMutHandler::new();
         let mut sut = SseSubscriber::new(connector);
-        let request = RequestBuilder::new("https://www.fake").get().build();
+        let request = RequestBuilder::new(&"https://www.fake".try_into().unwrap())
+            .get()
+            .build();
 
         let result = sut.subscribe_mut(&request, &mut handler);
         let Err(SseSubscribeError::HttpError(err)) = result else {
@@ -306,7 +316,6 @@ pub(crate) mod fakes {
             }
         }
         fn result(&self) -> std::result::Result<(), ()> {
-            //            self.returns.borrow()[*self.called.borrow()].clone()
             Ok(())
         }
     }

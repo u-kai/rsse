@@ -351,7 +351,7 @@ mod tests {
     #[test]
     #[ignore = "実際の通信を行うため"]
     fn chatgptにtlsで通信する() {
-        let req = RequestBuilder::new(URL)
+        let req = RequestBuilder::new(&URL.try_into().unwrap())
             .post()
             .bearer_auth(&chatgpt_key())
             .json(message("hello"))
@@ -384,7 +384,7 @@ mod tests {
     }
     #[test]
     fn tls_socketは書き込みもできる() {
-        let url: Url = "https://www.google.com".into();
+        let url: Url = "https://www.google.com".try_into().unwrap();
         let client = ClientConnection::default(&url, RootCertStore::new()).unwrap();
         let stream = StreamOwned::new(client);
         let mut socket = TlsSocket::new(stream);

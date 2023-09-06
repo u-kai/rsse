@@ -73,9 +73,10 @@ impl Url {
         self.path.as_str()
     }
 }
-impl Into<Url> for &str {
-    fn into(self) -> Url {
-        Url::from_str(self).unwrap()
+impl TryInto<Url> for &str {
+    type Error = UrlError;
+    fn try_into(self) -> Result<Url> {
+        Url::from_str(self)
     }
 }
 impl Into<Url> for &Url {
