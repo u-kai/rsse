@@ -1,8 +1,21 @@
 use std::collections::BTreeMap;
 
-use crate::url::Url;
+use super::url::Url;
+#[derive(Debug, Clone)]
+pub struct Request {
+    value: String,
+    url: Url,
+}
+impl Request {
+    pub fn bytes(&self) -> &[u8] {
+        self.value.as_bytes()
+    }
+    pub fn url(&self) -> &Url {
+        &self.url
+    }
+}
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct RequestBuilder {
     url: Url,
     method: HttpMethod,
@@ -108,21 +121,8 @@ impl RequestBuilder {
         request
     }
 }
-#[derive(Debug, Clone)]
-pub struct Request {
-    value: String,
-    url: Url,
-}
-impl Request {
-    pub fn bytes(&self) -> &[u8] {
-        self.value.as_bytes()
-    }
-    pub fn url(&self) -> &Url {
-        &self.url
-    }
-}
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum HttpMethod {
     Get,
     Post,
@@ -142,7 +142,7 @@ impl HttpMethod {
 mod tests {
     use std::vec;
 
-    use crate::url::Url;
+    use crate::http::url::Url;
 
     use super::*;
     #[test]

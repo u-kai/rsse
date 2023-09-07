@@ -1,9 +1,25 @@
-#[derive(Debug, Clone)]
+use std::fmt::Display;
+
+use thiserror::Error;
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Url {
     scheme: Schema,
     host: String,
     port: u16,
     path: String,
+}
+impl Display for Url {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}://{}:{}{}",
+            self.scheme(),
+            self.host(),
+            self.port(),
+            self.path()
+        )
+    }
 }
 
 impl Url {
@@ -71,13 +87,19 @@ impl Url {
         self.path.as_str()
     }
 }
-impl Into<Url> for &str {
+impl TryInto<Url> for &str {
+    type Error = UrlError;
+    fn try_into(self) -> Result<Url> {
+        Url::from_str(self)
+    }
+}
+impl Into<Url> for &Url {
     fn into(self) -> Url {
-        Url::from_str(self).unwrap()
+        self.clone()
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Schema {
     Http,
     Https,
@@ -106,18 +128,12 @@ impl Schema {
 }
 
 pub type Result<T> = std::result::Result<T, UrlError>;
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum UrlError {
+    #[error("Invalid schema: {0}")]
     InvalidSchema(String),
+    #[error("Invalid string: {0}")]
     InvalidString(String),
-}
-impl UrlError {
-    pub fn to_string(&self) -> String {
-        match self {
-            UrlError::InvalidSchema(s) => format!("Invalid schema: {}", s),
-            UrlError::InvalidString(s) => format!("Invalid string: {}", s),
-        }
-    }
 }
 #[cfg(test)]
 mod tests {
