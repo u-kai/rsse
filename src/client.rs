@@ -1,10 +1,9 @@
 use crate::{
-    http::request::Request,
+    http::{request::Request, url::Url},
     sse::{
         connector::{SseConnectionError, SseConnector, SseTlsConnector, SseTlsConnectorBuilder},
         subscriber::{Result, SseHandler, SseMutHandler, SseSubscriber},
     },
-    url::Url,
 };
 
 #[derive(Debug)]

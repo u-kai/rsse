@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::url::Url;
+use super::url::Url;
 #[derive(Debug, Clone)]
 pub struct Request {
     value: String,
@@ -142,7 +142,7 @@ impl HttpMethod {
 mod tests {
     use std::vec;
 
-    use crate::url::Url;
+    use crate::http::url::Url;
 
     use super::*;
     #[test]

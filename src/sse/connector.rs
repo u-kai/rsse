@@ -12,14 +12,12 @@ use rustls::{Certificate, ClientConfig};
 use rustls_pemfile::{read_one, Item};
 use thiserror::Error;
 
-use crate::{
-    http::{
-        body::HttpBody,
-        header::HttpHeader,
-        request::{Request, RequestBuilder},
-        response::HttpResponse,
-        status_line::HttpStatusLine,
-    },
+use crate::http::{
+    body::HttpBody,
+    header::HttpHeader,
+    request::{Request, RequestBuilder},
+    response::HttpResponse,
+    status_line::HttpStatusLine,
     url::Url,
 };
 

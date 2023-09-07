@@ -1,7 +1,6 @@
 use rsse::client::SseClientBuilder;
-use rsse::http::request::RequestBuilder;
+use rsse::http::{request::RequestBuilder, url::Url};
 use rsse::sse::subscriber::{SseHandler, SseMutHandler};
-use rsse::url::Url;
 fn main() {
     let url = Url::from_str("https://localhost/test").unwrap();
     let mut client = SseClientBuilder::new(&url)
