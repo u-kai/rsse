@@ -15,7 +15,7 @@ impl Request {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct RequestBuilder {
     url: Url,
     method: HttpMethod,
@@ -122,7 +122,7 @@ impl RequestBuilder {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum HttpMethod {
     Get,
     Post,

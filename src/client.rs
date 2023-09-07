@@ -1,5 +1,5 @@
 use crate::{
-    http::{request::Request, url::Url},
+    http::{request::RequestBuilder, url::Url},
     sse::{
         connector::{SseConnectionError, SseConnector, SseTlsConnector, SseTlsConnectorBuilder},
         subscriber::{Result, SseHandler, SseMutHandler, SseSubscriber},
@@ -9,17 +9,51 @@ use crate::{
 #[derive(Debug)]
 pub struct SseClient<C: SseConnector> {
     subscriber: SseSubscriber<C>,
+    req_builder: RequestBuilder,
 }
+impl<C: SseConnector> SseClient<C> {
+    pub fn send<T, E, H: SseHandler<T, E>>(&mut self, handler: &H) -> Result<T, E> {
+        self.subscriber
+            .subscribe(&self.req_builder.clone().build(), handler)
+    }
+    pub fn send_mut<T, E, H: SseMutHandler<T, E>>(&mut self, handler: &mut H) -> Result<T, E> {
+        self.subscriber
+            .subscribe_mut(&self.req_builder.clone().build(), handler)
+    }
+    pub fn post(mut self) -> Self {
+        self.req_builder = self.req_builder.post();
+        self
+    }
+    pub fn bearer_auth(mut self, token: &str) -> Self {
+        self.req_builder = self.req_builder.bearer_auth(token);
+        self
+    }
+    pub fn header(mut self, key: &str, value: &str) -> Self {
+        self.req_builder = self.req_builder.header(key, value);
+        self
+    }
+    pub fn get(mut self) -> Self {
+        self.req_builder = self.req_builder.get();
+        self
+    }
+    pub fn json<S: serde::Serialize>(mut self, json: S) -> Self {
+        self.req_builder = self.req_builder.json(json);
+        self
+    }
+}
+
 pub struct SseClientBuilder<C: SseConnector> {
     url: Url,
     connector: C,
+    req_builder: RequestBuilder,
 }
 impl SseClientBuilder<SseTlsConnector> {
     pub fn new(url: impl Into<Url>) -> SseClientBuilder<SseTlsConnector> {
         let url = url.into();
         SseClientBuilder {
             url: url.clone(),
-            connector: SseTlsConnectorBuilder::new(url).build().unwrap(),
+            connector: SseTlsConnectorBuilder::new(&url).build().unwrap(),
+            req_builder: RequestBuilder::new(&url),
         }
     }
 }
@@ -30,8 +64,9 @@ impl<C: SseConnector> SseClientBuilder<C> {
         NewC: SseConnector,
     {
         SseClientBuilder {
-            url: self.url,
             connector,
+            url: self.url,
+            req_builder: self.req_builder,
         }
     }
     pub fn proxy(
@@ -45,6 +80,7 @@ impl<C: SseConnector> SseClientBuilder<C> {
         Ok(SseClientBuilder {
             url: self.url,
             connector,
+            req_builder: self.req_builder,
         })
     }
     pub fn add_ca(
@@ -55,25 +91,30 @@ impl<C: SseConnector> SseClientBuilder<C> {
         Ok(SseClientBuilder {
             url: self.url,
             connector,
+            req_builder: self.req_builder,
         })
     }
     pub fn build(self) -> SseClient<C> {
         SseClient {
             subscriber: SseSubscriber::new(self.connector),
+            req_builder: self.req_builder,
         }
     }
-}
-
-impl<C: SseConnector> SseClient<C> {
-    pub fn send<T, E, H: SseHandler<T, E>>(&mut self, req: &Request, handler: &H) -> Result<T, E> {
-        self.subscriber.subscribe(req, handler)
+    pub fn post(mut self) -> Self {
+        self.req_builder = self.req_builder.post();
+        self
     }
-    pub fn send_mut<T, E, H: SseMutHandler<T, E>>(
-        &mut self,
-        req: &Request,
-        handler: &mut H,
-    ) -> Result<T, E> {
-        self.subscriber.subscribe_mut(req, handler)
+    pub fn json<S: serde::Serialize>(mut self, json: S) -> Self {
+        self.req_builder = self.req_builder.json(json);
+        self
+    }
+    pub fn header(mut self, key: &str, value: &str) -> Self {
+        self.req_builder = self.req_builder.header(key, value);
+        self
+    }
+    pub fn bearer_auth(mut self, token: &str) -> Self {
+        self.req_builder = self.req_builder.bearer_auth(token);
+        self
     }
 }
 
@@ -96,17 +137,15 @@ mod tests {
     #[ignore = "dockerによるproxyが必要のため"]
     fn proxyに対して通信可能() {
         let mut gpt_handler = GptHandler::new();
-        let req = RequestBuilder::new(&URL.try_into().unwrap())
+        let mut sut = SseClientBuilder::new(&URL.try_into().unwrap())
+            .proxy(&"http://localhost:8080".try_into().unwrap())
+            .unwrap()
             .post()
             .json(message("Hello"))
             .bearer_auth(&chatgpt_key())
             .build();
-        let mut sut = SseClientBuilder::new(req.url())
-            .proxy(&"http://localhost:8080".try_into().unwrap())
-            .unwrap()
-            .build();
 
-        let result = sut.send_mut(&req, &mut gpt_handler).unwrap();
+        let result = sut.send_mut(&mut gpt_handler).unwrap();
 
         println!("gpt > {:?}", result);
         assert!(result.len() > 0);
@@ -116,14 +155,14 @@ mod tests {
     #[ignore = "実際の通信を行うため"]
     fn chatgptに通信する() {
         let mut gpt_handler = GptHandler::new();
-        let req = RequestBuilder::new(&URL.try_into().unwrap())
+        let req = RequestBuilder::new(&URL.try_into().unwrap()).build();
+        let mut sut = SseClientBuilder::new(req.url())
             .post()
             .json(message("Hello"))
             .bearer_auth(&chatgpt_key())
             .build();
-        let mut sut = SseClientBuilder::new(req.url()).build();
 
-        let result = sut.send_mut(&req, &mut gpt_handler).unwrap();
+        let result = sut.send_mut(&mut gpt_handler).unwrap();
 
         println!("gpt > {:?}", result);
         assert!(result.len() > 0);
@@ -139,21 +178,27 @@ mod tests {
         connector.set_response("data: Hello\r\n");
         connector.set_response("data: World!\r\n");
 
-        let req = RequestBuilder::new(&"http://fake.com".try_into().unwrap())
+        let mut sut = SseClientBuilder::new(&"http://fake.com".try_into().unwrap())
             .post()
             .json(r#"{"name":"John"}"#)
-            .build();
-        let mut sut = SseClientBuilder::new(&"http://fake.com".try_into().unwrap())
             .set_connector(connector)
             .build();
 
-        let result = sut.send(&req, &handler);
+        let result = sut.send(&handler);
 
         assert!(result.is_ok());
         assert_eq!(handler.called_time(), 2);
         handler.assert_received(&[
             SseResponse::Data("Hello".to_string()),
             SseResponse::Data("World!".to_string()),
-        ])
+        ]);
+
+        let result = sut.post().json(r#"{"name":"John"}"#).send(&handler);
+        assert!(result.is_ok());
+        assert_eq!(handler.called_time(), 2);
+        handler.assert_received(&[
+            SseResponse::Data("Hello".to_string()),
+            SseResponse::Data("World!".to_string()),
+        ]);
     }
 }

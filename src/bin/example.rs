@@ -1,18 +1,21 @@
 use rsse::client::SseClientBuilder;
-use rsse::http::{request::RequestBuilder, url::Url};
+use rsse::http::url::Url;
 use rsse::sse::subscriber::{SseHandler, SseMutHandler};
 fn main() {
     let url = Url::from_str("https://localhost/test").unwrap();
+    let proxy_url = Url::from_str("https://localhost/proxy").unwrap();
     let mut client = SseClientBuilder::new(&url)
-        .proxy(&url)
+        .post()
+        .json(r#"{}"#)
+        .proxy(&proxy_url)
         .unwrap()
         .add_ca("hello")
         .unwrap()
         .build();
-    let req = RequestBuilder::new(&url).get().build();
     let mut handler = Handler {};
-    client.send(&req, &handler).unwrap();
-    client.send_mut(&req, &mut handler).unwrap();
+    client.send(&handler).unwrap();
+    client.send_mut(&mut handler).unwrap();
+    client.get().send(&handler).unwrap();
 }
 
 struct Handler {}
