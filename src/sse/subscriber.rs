@@ -1,5 +1,7 @@
 use std::fmt::Debug;
 
+use thiserror::Error;
+
 use crate::{http::response::HttpResponse, request::Request};
 
 use super::{
@@ -53,8 +55,8 @@ impl<C: SseConnector> SseSubscriber<C> {
                                 .result()
                                 .map_err(|e| SseSubscribeError::HandlerError(e));
                         }
-                        HandleProgress::Err(_) => {
-                            todo!()
+                        HandleProgress::Err(e) => {
+                            return Err(SseSubscribeError::HandlerError(e));
                         }
                     };
                 }
@@ -102,26 +104,17 @@ impl<C: SseConnector> SseSubscriber<C> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum SseSubscribeError<E> {
+    #[error("SseSubscribeError invalid url: {0}")]
     InvalidUrl(String),
+    #[error("SseSubscribeError connection error: {0}")]
     ConnectionError(SseConnectionError),
+    #[error("SseSubscribeError http error: {0}")]
     HttpError(HttpResponse),
+    #[error("SseSubscribeError handler error: {0:?}")]
     HandlerError(E),
 }
-impl<E: Debug> std::fmt::Display for SseSubscribeError<E> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            SseSubscribeError::HttpError(err) => {
-                write!(f, "SseSubscribeError: {}", err.to_string())
-            }
-            Self::ConnectionError(err) => write!(f, "SseSubscribeError: {}", err.to_string()),
-            Self::HandlerError(err) => write!(f, "SseSubscribeError: {:?}", err),
-            Self::InvalidUrl(url) => write!(f, "SseSubscribeError: InvalidUrl({})", url),
-        }
-    }
-}
-impl<E: Debug> std::error::Error for SseSubscribeError<E> {}
 impl<E> From<SseConnectionError> for SseSubscribeError<E> {
     fn from(err: SseConnectionError) -> Self {
         match err {

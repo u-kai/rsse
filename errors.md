@@ -1,4 +1,5 @@
-- url の変換
+~~- url の変換~~
+
 - ca_path
 - client_connection
 - tcp_stream_connect

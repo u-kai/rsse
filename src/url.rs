@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use thiserror::Error;
 
 #[derive(Debug, Clone)]
@@ -6,6 +8,18 @@ pub struct Url {
     host: String,
     port: u16,
     path: String,
+}
+impl Display for Url {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}://{}:{}{}",
+            self.scheme(),
+            self.host(),
+            self.port(),
+            self.path()
+        )
+    }
 }
 
 impl Url {

@@ -1,8 +1,10 @@
+use thiserror::Error;
+
 use crate::{
     request::{Request, RequestBuilder},
     sse::{
         connector::{SseConnectionError, SseConnector, SseTlsConnector, SseTlsConnectorBuilder},
-        subscriber::{Result, SseHandler, SseMutHandler, SseSubscribeError, SseSubscriber},
+        subscriber::{Result, SseHandler, SseMutHandler, SseSubscriber},
     },
     url::Url,
 };
@@ -62,8 +64,7 @@ impl<C: SseConnector> SseClientBuilder<C> {
     pub fn proxy(
         self,
         proxy: &Url,
-    ) -> std::result::Result<SseClientBuilder<SseTlsConnector>, Box<dyn std::error::Error + 'static>>
-    {
+    ) -> std::result::Result<SseClientBuilder<SseTlsConnector>, SseConnectionError> {
         let connector = SseTlsConnectorBuilder::new(&self.url)
             .proxy(proxy)
             .build()?;
@@ -77,8 +78,7 @@ impl<C: SseConnector> SseClientBuilder<C> {
     pub fn add_ca(
         self,
         ca: &str,
-    ) -> std::result::Result<SseClientBuilder<SseTlsConnector>, Box<dyn std::error::Error + 'static>>
-    {
+    ) -> std::result::Result<SseClientBuilder<SseTlsConnector>, SseConnectionError> {
         let connector = SseTlsConnectorBuilder::new(&self.url).add_ca(ca).build()?;
         Ok(SseClientBuilder {
             url: self.url,
@@ -93,12 +93,20 @@ impl<C: SseConnector> SseClientBuilder<C> {
         }
     }
 }
+
 impl<C: SseConnector> SseClient<C> {
     pub fn send<T, E, H: SseHandler<T, E>>(&mut self, handler: &H) -> Result<T, E> {
         self.subscriber.subscribe(&self.req, handler)
     }
     pub fn send_mut<T, E, H: SseMutHandler<T, E>>(&mut self, handler: &mut H) -> Result<T, E> {
         self.subscriber.subscribe_mut(&self.req, handler)
+    }
+    pub fn send_new_request<T, E, H: SseHandler<T, E>>(
+        &mut self,
+        req: &Request,
+        handler: &H,
+    ) -> Result<T, E> {
+        self.subscriber.subscribe(req, handler)
     }
 }
 
@@ -108,9 +116,8 @@ mod tests {
     use crate::sse::{
         self,
         connector::{
-            chatgpt::{chatgpt_key, message, ChatGptRes, GptHandler, URL},
+            chatgpt::{chatgpt_key, message, GptHandler, URL},
             fakes::FakeSseConnector,
-            ConnectedSseResponse,
         },
         response::SseResponse,
     };

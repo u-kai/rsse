@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use super::{body::HttpBody, header::HttpHeader, status_line::HttpStatusLine};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -5,6 +7,19 @@ pub struct HttpResponse {
     status_line: HttpStatusLine,
     header: HttpHeader,
     body: HttpBody,
+}
+impl Display for HttpResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}{}{}{}{}",
+            self.status_line.to_string(),
+            self.header.to_string(),
+            "\r\n",
+            self.body.to_str(),
+            "\r\n"
+        )
+    }
 }
 
 impl HttpResponse {

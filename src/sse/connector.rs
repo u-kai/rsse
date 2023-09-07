@@ -1,7 +1,7 @@
 use std::{
     cell::RefCell,
     error::Error,
-    fmt::Debug,
+    fmt::{Debug, Display, Formatter},
     fs::File,
     io::{BufRead, BufReader, BufWriter, Read, Write},
     net::TcpStream,
@@ -11,6 +11,7 @@ use std::{
 
 use rustls::{Certificate, ClientConfig};
 use rustls_pemfile::{read_one, Item};
+use thiserror::Error;
 
 use crate::{
     http::{
@@ -49,13 +50,14 @@ impl SseTlsConnectorBuilder {
         self
     }
 
-    pub fn build(self) -> std::result::Result<SseTlsConnector, Box<dyn Error + 'static>> {
+    pub fn build(self) -> Result<SseTlsConnector> {
         // set ca
         let mut ca = RootCertStore::new();
         self.ca_paths
             .iter()
             .map(|path| ca.add_ca(path))
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| SseConnectionError::CAFileIOError(e))?;
 
         // set proxy
         if let Some(proxy_url) = self.proxy_url {
@@ -90,23 +92,19 @@ impl ClientConnection {
     fn new(client: rustls::ClientConnection, tcp_stream: TcpStream) -> Self {
         Self { client, tcp_stream }
     }
-    fn proxy_connection(
-        url: &Url,
-        proxy_url: &Url,
-        certs: RootCertStore,
-    ) -> std::result::Result<Self, Box<dyn Error + 'static>> {
-        let client = Self::clinet(url, certs)?;
+    fn proxy_connection(url: &Url, proxy_url: &Url, certs: RootCertStore) -> Result<Self> {
+        let client = Self::client(url, certs)?;
 
         let mut tcp_stream = TcpStream::connect(proxy_url.to_addr_str())
-            .map_err(|e| SseConnectionError::IOError(e))?;
+            .map_err(|e| SseConnectionError::ConnectError(e))?;
         let req = RequestBuilder::new(url).connect_request();
 
-        tcp_stream.write_all(req.bytes())?;
+        tcp_stream
+            .write_all(req.bytes())
+            .map_err(|e| SseConnectionError::ConnectError(e))?;
 
         let mut buf = vec![0; 4096];
 
-        // TODO
-        //
         while let Ok(size) = tcp_stream.read(&mut buf) {
             if size == 0 {
                 break;
@@ -116,22 +114,24 @@ impl ClientConnection {
                 return Ok(Self::new(client, tcp_stream));
             }
         }
-        todo!()
+        Err(ProxyConnectionError::new(
+            proxy_url,
+            url,
+            ProxyConnectionErrorType::InvalidRequestError("Invalid Error".to_string()),
+        ))
+        .map_err(|e| SseConnectionError::ProxyConnectionError(e))
     }
-    fn default(
-        url: &Url,
-        certs: RootCertStore,
-    ) -> std::result::Result<Self, Box<dyn Error + 'static>> {
-        let tcp_stream =
-            TcpStream::connect(url.to_addr_str()).map_err(|e| SseConnectionError::IOError(e))?;
-        let client = Self::clinet(url, certs)?;
+    fn default(url: &Url, certs: RootCertStore) -> Result<Self> {
+        let tcp_stream = TcpStream::connect(url.to_addr_str())
+            .map_err(|e| SseConnectionError::ConnectError(e))?;
+        let client = Self::client(url, certs)?;
         Ok(Self::new(client, tcp_stream))
     }
-    fn clinet(
-        url: &Url,
-        certs: RootCertStore,
-    ) -> std::result::Result<rustls::ClientConnection, Box<dyn Error + 'static>> {
-        let ip = url.host().try_into()?;
+    fn client(url: &Url, certs: RootCertStore) -> Result<rustls::ClientConnection> {
+        let ip = url
+            .host()
+            .try_into()
+            .map_err(|_e| SseConnectionError::DnsError(InvalidDnsNameError::new(url)))?;
         let config = ClientConfig::builder()
             .with_safe_defaults()
             .with_root_certificates(certs.root_store)
@@ -159,13 +159,14 @@ impl RootCertStore {
     fn add_ca(&mut self, path: impl AsRef<Path>) -> std::io::Result<()> {
         let file = File::open(path)?;
         let mut reader = BufReader::new(file);
-        match read_one(&mut reader).unwrap().unwrap() {
-            Item::X509Certificate(cert) => {
-                let cert = Certificate(cert);
-                self.root_store.add(&cert).unwrap();
-            }
-            _ => println!("error"),
+        let Ok(Some(Item::X509Certificate(cert))) = read_one(&mut reader) else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "invalid cert",
+            ));
         };
+        let cert = Certificate(cert);
+        self.root_store.add(&cert).unwrap();
         Ok(())
     }
 }
@@ -175,7 +176,7 @@ impl SseConnector for SseTlsConnector {
     fn connect(&mut self, req: &Request) -> Result<&mut SseConnection<Self::Socket>> {
         self.conn
             .write(req.bytes())
-            .map_err(|e| SseConnectionError::IOError(e))?;
+            .map_err(|e| SseConnectionError::ConnectError(e))?;
         Ok(&mut self.conn)
     }
 }
@@ -279,7 +280,7 @@ impl<S: Socket> SseConnection<S> {
         while let Some(line) = self
             .conn
             .read_line()
-            .map_err(|e| SseConnectionError::IOError(e))?
+            .map_err(|e| SseConnectionError::ConnectionError(e))?
         {
             if let Ok(http_status) = HttpStatusLine::from_str(&line) {
                 if !http_status.is_error() {
@@ -317,23 +318,81 @@ pub enum ConnectedSseResponse {
     Done,
 }
 
-#[derive(Debug)]
-pub enum SseConnectionError {
-    IOError(std::io::Error),
-    HttpError(HttpResponse),
+#[derive(Debug, Error)]
+pub struct InvalidDnsNameError {
+    name: Url,
 }
-
-impl std::fmt::Display for SseConnectionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            SseConnectionError::IOError(err) => {
-                write!(f, "SseConnectionError: {}", err.to_string())
-            }
-            Self::HttpError(err) => write!(f, "SseConnectionError: {}", err.to_string()),
-        }
+impl InvalidDnsNameError {
+    pub fn new(name: impl Into<Url>) -> Self {
+        Self { name: name.into() }
     }
 }
-impl std::error::Error for SseConnectionError {}
+impl Display for InvalidDnsNameError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "invalid dns name {}", self.name)
+    }
+}
+
+#[derive(Debug, Error)]
+pub struct ProxyConnectionError {
+    proxy_url: Url,
+    url: Url,
+    error_type: ProxyConnectionErrorType,
+}
+impl Display for ProxyConnectionError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "proxy connection error proxy_url: {}, url: {}, error_type: {}",
+            self.proxy_url, self.url, self.error_type
+        )
+    }
+}
+impl ProxyConnectionError {
+    pub fn new(
+        proxy_url: impl Into<Url>,
+        url: impl Into<Url>,
+        error_type: ProxyConnectionErrorType,
+    ) -> Self {
+        Self {
+            proxy_url: proxy_url.into(),
+            url: url.into(),
+            error_type,
+        }
+    }
+    fn from_io(proxy_url: impl Into<Url>, url: impl Into<Url>, error: std::io::Error) -> Self {
+        Self::new(
+            proxy_url,
+            url,
+            ProxyConnectionErrorType::ConnectError(error),
+        )
+    }
+}
+#[derive(Debug, Error)]
+pub enum ProxyConnectionErrorType {
+    #[error("connect error {0:?}")]
+    ConnectError(std::io::Error),
+    #[error("invalid request error {0:?}")]
+    InvalidRequestError(String),
+}
+
+#[derive(Debug, Error)]
+pub enum SseConnectionError {
+    #[error("invalid url {0:?}")]
+    InvalidUrl(String),
+    #[error("connect to proxy error {0:?}")]
+    ProxyConnectionError(ProxyConnectionError),
+    #[error("ca file io error {0:?}")]
+    CAFileIOError(std::io::Error),
+    #[error("http error {0:?}")]
+    HttpError(HttpResponse),
+    #[error("connect io error {0:?}")]
+    ConnectError(std::io::Error),
+    #[error("connection io error {0:?}")]
+    ConnectionError(std::io::Error),
+    #[error("dns error {0:?}")]
+    DnsError(InvalidDnsNameError),
+}
 
 #[cfg(test)]
 mod tests {
