@@ -409,6 +409,47 @@ mod tests {
     use super::*;
     #[test]
     #[ignore = "実際の通信を行うため"]
+    fn 同じconnectionで通信を行うことが可能() {
+        fn one_request(connector: &mut SseTlsConnector, message_: &str) {
+            let req = RequestBuilder::new(&URL.try_into().unwrap())
+                .post()
+                .bearer_auth(&chatgpt_key())
+                .json(message(message_))
+                .build();
+            let conn = connector.connect(&req).unwrap();
+            let mut result = conn.read();
+            let mut flag = false;
+            while let Ok(res) = &result {
+                let chatgpt_res = evaluate_chatgpt_response(res);
+                match chatgpt_res {
+                    ChatGptRes::Done => {
+                        println!("done");
+                        flag = true;
+                        break;
+                    }
+                    ChatGptRes::Data(data) => {
+                        println!("progress: {}", data);
+                        result = conn.read();
+                        continue;
+                    }
+                    ChatGptRes::Err => {
+                        flag = false;
+                        println!("err");
+                        break;
+                    }
+                }
+            }
+            assert!(flag);
+        }
+        let mut tls_connector = SseTlsConnectorBuilder::new(&URL.try_into().unwrap())
+            .build()
+            .unwrap();
+        one_request(&mut tls_connector, "hello");
+        one_request(&mut tls_connector, "Ary you OK?");
+        one_request(&mut tls_connector, "thanks");
+    }
+    #[test]
+    #[ignore = "実際の通信を行うため"]
     fn chatgptにtlsで通信する() {
         let req = RequestBuilder::new(&URL.try_into().unwrap())
             .post()
