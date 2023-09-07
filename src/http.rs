@@ -1,4 +1,5 @@
-pub mod body;
-pub mod header;
-pub mod response;
-pub mod status_line;
+pub(crate) mod body;
+pub(crate) mod header;
+pub mod request;
+pub(crate) mod response;
+pub(crate) mod status_line;

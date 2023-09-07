@@ -1,5 +1,5 @@
 use crate::{
-    request::Request,
+    http::request::Request,
     sse::{
         connector::{SseConnectionError, SseConnector, SseTlsConnector, SseTlsConnectorBuilder},
         subscriber::{Result, SseHandler, SseMutHandler, SseSubscriber},
@@ -82,7 +82,7 @@ impl<C: SseConnector> SseClient<C> {
 mod tests {
     use super::*;
     use crate::{
-        request::RequestBuilder,
+        http::request::RequestBuilder,
         sse::{
             self,
             connector::{

@@ -1,5 +1,4 @@
 pub mod client;
-mod http;
-pub mod request;
+pub mod http;
 pub mod sse;
 pub mod url;

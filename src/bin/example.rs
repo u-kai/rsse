@@ -1,5 +1,5 @@
 use rsse::client::SseClientBuilder;
-use rsse::request::RequestBuilder;
+use rsse::http::request::RequestBuilder;
 use rsse::sse::subscriber::{SseHandler, SseMutHandler};
 use rsse::url::Url;
 fn main() {

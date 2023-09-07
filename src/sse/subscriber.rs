@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use thiserror::Error;
 
-use crate::{http::response::HttpResponse, request::Request};
+use crate::http::{request::Request, response::HttpResponse};
 
 use super::{
     connector::{ConnectedSseResponse, SseConnectionError, SseConnector},
@@ -128,7 +128,7 @@ impl<E> From<SseConnectionError> for SseSubscribeError<E> {
 mod tests {
 
     use crate::{
-        request::RequestBuilder,
+        http::request::RequestBuilder,
         sse::{
             connector::fakes::FakeSseConnector,
             subscriber::fakes::{MockHandler, MockMutHandler},

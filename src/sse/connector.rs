@@ -14,9 +14,12 @@ use thiserror::Error;
 
 use crate::{
     http::{
-        body::HttpBody, header::HttpHeader, response::HttpResponse, status_line::HttpStatusLine,
+        body::HttpBody,
+        header::HttpHeader,
+        request::{Request, RequestBuilder},
+        response::HttpResponse,
+        status_line::HttpStatusLine,
     },
-    request::{Request, RequestBuilder},
     url::Url,
 };
 
@@ -390,8 +393,7 @@ pub enum SseConnectionError {
 mod tests {
 
     use crate::{
-        http::{body::HttpBody, response::HttpResponse},
-        request::RequestBuilder,
+        http::{body::HttpBody, request::RequestBuilder, response::HttpResponse},
         sse::connector::{
             chatgpt::{chatgpt_key, evaluate_chatgpt_response, message, ChatGptRes, URL},
             fakes::FakeTcpConnection,
