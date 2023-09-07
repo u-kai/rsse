@@ -1,6 +1,5 @@
 use std::{
     cell::RefCell,
-    error::Error,
     fmt::{Debug, Display, Formatter},
     fs::File,
     io::{BufRead, BufReader, BufWriter, Read, Write},
@@ -359,13 +358,6 @@ impl ProxyConnectionError {
             url: url.into(),
             error_type,
         }
-    }
-    fn from_io(proxy_url: impl Into<Url>, url: impl Into<Url>, error: std::io::Error) -> Self {
-        Self::new(
-            proxy_url,
-            url,
-            ProxyConnectionErrorType::ConnectError(error),
-        )
     }
 }
 #[derive(Debug, Error)]
