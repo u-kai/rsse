@@ -288,9 +288,6 @@ pub(crate) mod fakes {
                 returns: RefCell::new(vec![]),
             }
         }
-        pub fn set_returns(&self, returns: Vec<()>) {
-            *self.returns.borrow_mut() = returns;
-        }
         pub fn called_time(&self) -> usize {
             self.called.borrow().clone()
         }
@@ -324,9 +321,6 @@ pub(crate) mod fakes {
                 events: vec![],
                 returns: vec![],
             }
-        }
-        pub fn set_returns(&mut self, returns: Vec<()>) {
-            self.returns = returns;
         }
         pub fn called_time(&self) -> usize {
             self.called

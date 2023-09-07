@@ -657,7 +657,6 @@ pub mod chatgpt {
             }
             SseResponse::Id(id) => ChatGptRes::Data(id.to_string()),
             SseResponse::Event(event) => ChatGptRes::Data(event.to_string()),
-            _ => ChatGptRes::Err,
         }
     }
     pub fn evaluate_chatgpt_response(res: &ConnectedSseResponse) -> ChatGptRes {

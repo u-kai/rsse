@@ -6,7 +6,9 @@ use std::{
 };
 
 pub struct SseServer {
+    #[allow(dead_code)]
     addr: String,
+    #[allow(dead_code)]
     responses: Vec<String>,
 }
 impl SseServer {
@@ -16,9 +18,11 @@ impl SseServer {
             responses: Vec::new(),
         }
     }
+    #[allow(dead_code)]
     pub fn add_response(&mut self, response: &str) {
         self.responses.push(response.to_string());
     }
+    #[allow(dead_code)]
     pub fn start(&self) -> Result<(), std::io::Error> {
         let listener = TcpListener::bind(self.addr.as_str())?;
         for stream in listener.incoming() {
@@ -27,6 +31,7 @@ impl SseServer {
         }
         Ok(())
     }
+    #[allow(dead_code)]
     pub fn handle_connection(&self, mut stream: std::net::TcpStream) -> Result<(), std::io::Error> {
         let mut reader = std::io::BufReader::new(&mut stream);
         let mut line = String::new();
@@ -49,6 +54,7 @@ impl SseServer {
         writer.flush()?;
         Ok(())
     }
+    #[allow(dead_code)]
     fn make_sse_data(s: &str) -> String {
         format!("data: {}\r\n", s)
     }
