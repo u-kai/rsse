@@ -10,7 +10,7 @@ use super::{
 };
 pub type Result<T, E> = std::result::Result<T, SseSubscribeError<E>>;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum HandleProgress<E> {
     Done,
     Progress,
