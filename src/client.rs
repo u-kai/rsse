@@ -2,7 +2,8 @@ use crate::{
     http::{request::RequestBuilder, url::Url},
     sse::{
         connector::{SseConnectionError, SseConnector, SseTlsConnector, SseTlsConnectorBuilder},
-        subscriber::{Result, SseHandler, SseMutHandler, SseSubscriber},
+        response::SseResponse,
+        subscriber::{HandleProgress, Result, SseHandler, SseMutHandler, SseSubscriber},
     },
 };
 
@@ -15,6 +16,17 @@ impl<C: SseConnector> SseClient<C> {
     pub fn send<T, E, H: SseHandler<T, E>>(&mut self, handler: &H) -> Result<T, E> {
         self.subscriber
             .subscribe(&self.req_builder.clone().build(), handler)
+    }
+    pub fn send_mut_fn<E, F: FnMut(SseResponse) -> HandleProgress<E>>(
+        &mut self,
+        f: F,
+    ) -> Result<(), E> {
+        self.subscriber
+            .subscribe_mut_fn(&self.req_builder.clone().build(), f)
+    }
+    pub fn send_fn<E, F: Fn(SseResponse) -> HandleProgress<E>>(&mut self, f: F) -> Result<(), E> {
+        self.subscriber
+            .subscribe_fn(&self.req_builder.clone().build(), f)
     }
     pub fn send_mut<T, E, H: SseMutHandler<T, E>>(&mut self, handler: &mut H) -> Result<T, E> {
         self.subscriber
@@ -129,6 +141,7 @@ mod tests {
                 fakes::FakeSseConnector,
             },
             response::SseResponse,
+            subscriber::HandleProgress,
         },
     };
 
@@ -149,6 +162,31 @@ mod tests {
         println!("gpt > {:?}", result);
         assert!(result.len() > 0);
         assert!(gpt_handler.is_success());
+    }
+    #[test]
+    #[ignore = "実際の通信を行うため"]
+    fn chatgptにfnを登録して通信する() {
+        let mut store = Vec::new();
+        let req = RequestBuilder::new(&URL.try_into().unwrap()).build();
+        let mut sut = SseClientBuilder::new(req.url())
+            .post()
+            .json(message("Hello"))
+            .bearer_auth(&chatgpt_key())
+            .build();
+
+        sut.send_mut_fn(|res| match res {
+            SseResponse::Data(data) => {
+                if data.contains("[DONE]") {
+                    return HandleProgress::Done;
+                }
+                store.push(data);
+                HandleProgress::<String>::Progress
+            }
+            _ => HandleProgress::Progress,
+        })
+        .unwrap();
+        println!("gpt > {:#?}", store);
+        assert!(store.len() > 0);
     }
     #[test]
     #[ignore = "実際の通信を行うため"]

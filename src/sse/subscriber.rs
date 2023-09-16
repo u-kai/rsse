@@ -102,7 +102,7 @@ impl<C: SseConnector> SseSubscriber<C> {
     pub fn subscribe_mut_fn<E, F: FnMut(SseResponse) -> HandleProgress<E>>(
         &mut self,
         req: &Request,
-        f: &mut F,
+        mut f: F,
     ) -> Result<(), E> {
         impl_subscribe_fn!(self, req, f);
     }
@@ -192,7 +192,7 @@ mod tests {
             .build();
 
         let mut store = Vec::new();
-        sut.subscribe_mut_fn(&request, &mut |res| match res {
+        sut.subscribe_mut_fn(&request, |res| match res {
             SseResponse::Data(s) => {
                 store.push(s);
                 HandleProgress::<String>::Progress
