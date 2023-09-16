@@ -31,11 +31,11 @@ impl RequestBuilder {
             body: String::new(),
         }
     }
-    pub fn get(mut self) -> Self {
+    pub fn get(&mut self) -> &mut Self {
         self.method = HttpMethod::Get;
         self
     }
-    pub fn post(mut self) -> Self {
+    pub fn post(&mut self) -> &mut Self {
         self.method = HttpMethod::Post;
         self
     }
@@ -48,7 +48,7 @@ impl RequestBuilder {
         }
         .build()
     }
-    pub fn header(mut self, key: &str, value: &str) -> Self {
+    pub fn header(&mut self, key: &str, value: &str) -> &mut Self {
         self.headers.insert(key.to_string(), value.to_string());
         self
     }
@@ -63,22 +63,22 @@ impl RequestBuilder {
                 acc
             })
     }
-    pub fn json<T: serde::Serialize>(mut self, json: T) -> Self {
-        self = self.header("Content-Type", "application/json");
+    pub fn json<T: serde::Serialize>(&mut self, json: T) -> &mut Self {
+        self.header("Content-Type", "application/json");
         self.body = serde_json::to_string(&json).unwrap();
         let len = self.body.len();
-        self = self.header("Content-Length", len.to_string().as_str());
+        self.header("Content-Length", len.to_string().as_str());
         self
     }
-    pub fn bearer_auth(mut self, token: &str) -> Self {
+    pub fn bearer_auth(&mut self, token: &str) -> &mut Self {
         self.headers
             .insert("Authorization".to_string(), format!("Bearer {}", token));
         self
     }
-    pub fn build(self) -> Request {
+    pub fn build(&mut self) -> Request {
         Request {
             value: self.to_request(),
-            url: self.url,
+            url: self.url.clone(),
         }
     }
     fn to_request(&self) -> String {

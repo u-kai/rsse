@@ -39,18 +39,18 @@ impl SseTlsConnectorBuilder {
         }
     }
 
-    pub fn add_ca(mut self, ca_path: impl AsRef<Path>) -> Self {
+    pub fn add_ca(&mut self, ca_path: impl AsRef<Path>) -> &mut Self {
         self.ca_paths
             .push(ca_path.as_ref().to_str().unwrap().to_string());
         self
     }
 
-    pub fn proxy(mut self, proxy_url: impl Into<Url>) -> Self {
+    pub fn proxy(&mut self, proxy_url: impl Into<Url>) -> &mut Self {
         self.proxy_url = Some(proxy_url.into());
         self
     }
 
-    pub fn build(self) -> Result<SseTlsConnector> {
+    pub fn build(&mut self) -> Result<SseTlsConnector> {
         // set ca
         let mut ca = RootCertStore::new();
         self.ca_paths
@@ -60,7 +60,7 @@ impl SseTlsConnectorBuilder {
             .map_err(|e| SseConnectionError::CAFileIOError(e))?;
 
         // set proxy
-        if let Some(proxy_url) = self.proxy_url {
+        if let Some(proxy_url) = self.proxy_url.clone() {
             let client_connection = ClientConnection::proxy_connection(&self.url, &proxy_url, ca)?;
             return Ok(SseTlsConnector::new(client_connection));
         }
