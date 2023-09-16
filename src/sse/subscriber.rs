@@ -26,66 +26,20 @@ pub trait SseMutHandler<T, E> {
     fn result(&self) -> std::result::Result<T, E>;
 }
 
-#[derive(Debug)]
-pub struct SseSubscriber<C: SseConnector> {
-    connector: C,
-}
-impl<C: SseConnector> SseSubscriber<C> {
-    pub fn new(connector: C) -> Self {
-        Self { connector }
-    }
-
-    pub fn subscribe<T, E>(
-        &mut self,
-        req: &Request,
-        handler: &impl SseHandler<T, E>,
-    ) -> Result<T, E> {
-        let conn = self
+macro_rules! impl_subscribe_handler {
+    ($self:ident,$req:ident,$handler:ident) => {
+        let connection = $self
             .connector
-            .connect(req)
-            .map_err(SseSubscribeError::from)?;
-        loop {
-            let res = conn.read().map_err(SseSubscribeError::from)?;
-            match res {
-                ConnectedSseResponse::Progress(sse_response) => {
-                    match handler.handle(sse_response) {
-                        HandleProgress::Progress => {}
-                        HandleProgress::Done => {
-                            return handler
-                                .result()
-                                .map_err(|e| SseSubscribeError::HandlerError(e));
-                        }
-                        HandleProgress::Err(e) => {
-                            return Err(SseSubscribeError::HandlerError(e));
-                        }
-                    };
-                }
-                ConnectedSseResponse::Done => {
-                    return handler
-                        .result()
-                        .map_err(|e| SseSubscribeError::HandlerError(e));
-                }
-            }
-        }
-    }
-
-    pub fn subscribe_mut<T, E>(
-        &mut self,
-        req: &Request,
-        handler: &mut impl SseMutHandler<T, E>,
-    ) -> Result<T, E> {
-        let connection = self
-            .connector
-            .connect(req)
+            .connect($req)
             .map_err(SseSubscribeError::from)?;
         loop {
             let res = connection.read().map_err(SseSubscribeError::from)?;
             match res {
                 ConnectedSseResponse::Progress(sse_response) => {
-                    match handler.handle(sse_response) {
+                    match $handler.handle(sse_response) {
                         HandleProgress::Progress => {}
                         HandleProgress::Done => {
-                            return handler
+                            return $handler
                                 .result()
                                 .map_err(|e| SseSubscribeError::HandlerError(e));
                         }
@@ -95,12 +49,77 @@ impl<C: SseConnector> SseSubscriber<C> {
                     };
                 }
                 ConnectedSseResponse::Done => {
-                    return handler
+                    return $handler
                         .result()
                         .map_err(|e| SseSubscribeError::HandlerError(e));
                 }
             }
         }
+    };
+}
+macro_rules! impl_subscribe_fn {
+    ($self:ident,$req:ident,$f:ident) => {
+        let conn = $self
+            .connector
+            .connect($req)
+            .map_err(SseSubscribeError::from)?;
+        loop {
+            let res = conn.read().map_err(SseSubscribeError::from)?;
+            match res {
+                ConnectedSseResponse::Progress(sse_response) => {
+                    match $f(sse_response) {
+                        HandleProgress::Progress => {}
+                        HandleProgress::Done => return Ok(()),
+                        HandleProgress::Err(e) => {
+                            return Err(SseSubscribeError::HandlerError(e));
+                        }
+                    };
+                }
+                ConnectedSseResponse::Done => {
+                    return Ok(());
+                }
+            }
+        }
+    };
+}
+
+#[derive(Debug)]
+pub struct SseSubscriber<C: SseConnector> {
+    connector: C,
+}
+impl<C: SseConnector> SseSubscriber<C> {
+    pub fn new(connector: C) -> Self {
+        Self { connector }
+    }
+
+    pub fn subscribe_fn<E, F: Fn(SseResponse) -> HandleProgress<E>>(
+        &mut self,
+        req: &Request,
+        f: F,
+    ) -> Result<(), E> {
+        impl_subscribe_fn!(self, req, f);
+    }
+    pub fn subscribe_mut_fn<E, F: FnMut(SseResponse) -> HandleProgress<E>>(
+        &mut self,
+        req: &Request,
+        f: &mut F,
+    ) -> Result<(), E> {
+        impl_subscribe_fn!(self, req, f);
+    }
+    pub fn subscribe<T, E>(
+        &mut self,
+        req: &Request,
+        handler: &impl SseHandler<T, E>,
+    ) -> Result<T, E> {
+        impl_subscribe_handler!(self, req, handler);
+    }
+
+    pub fn subscribe_mut<T, E>(
+        &mut self,
+        req: &Request,
+        handler: &mut impl SseMutHandler<T, E>,
+    ) -> Result<T, E> {
+        impl_subscribe_handler!(self, req, handler);
     }
 }
 
@@ -136,6 +155,55 @@ mod tests {
     };
 
     use super::*;
+    #[test]
+    fn fnをsubscribeの処理に使うことが可能() {
+        let mut connector = FakeSseConnector::new();
+        connector.set_response("HTTP/1.1 200 OK\r\n");
+        connector.set_response("Content-Type: text/event-stream\r\n");
+        connector.set_response("\r\n\r\n");
+        connector.set_response("data: Hello\r\n");
+
+        let mut sut = SseSubscriber::new(connector);
+        let request = RequestBuilder::new(&"https://www.fake".try_into().unwrap())
+            .get()
+            .build();
+
+        sut.subscribe_fn(&request, |res| match res {
+            SseResponse::Data(s) => {
+                assert_eq!(s, "Hello");
+                HandleProgress::<String>::Done
+            }
+            _ => HandleProgress::<String>::Progress,
+        })
+        .unwrap();
+    }
+    #[test]
+    fn fn_mutをsubscribeの処理に使うことが可能() {
+        let mut connector = FakeSseConnector::new();
+        connector.set_response("HTTP/1.1 200 OK\r\n");
+        connector.set_response("Content-Type: text/event-stream\r\n");
+        connector.set_response("\r\n\r\n");
+        connector.set_response("data: Hello\r\n");
+        connector.set_response("data: World!\r\n");
+
+        let mut sut = SseSubscriber::new(connector);
+        let request = RequestBuilder::new(&"https://www.fake".try_into().unwrap())
+            .get()
+            .build();
+
+        let mut store = Vec::new();
+        sut.subscribe_mut_fn(&request, &mut |res| match res {
+            SseResponse::Data(s) => {
+                store.push(s);
+                HandleProgress::<String>::Progress
+            }
+            _ => HandleProgress::Done,
+        })
+        .unwrap();
+
+        assert_eq!(sut.connector.connected_times(), 1);
+        assert_eq!(store, vec!["Hello", "World!"]);
+    }
     #[test]
     fn handlerの最終結果を取得可能() {
         let mut connector = FakeSseConnector::new();
