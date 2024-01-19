@@ -32,99 +32,91 @@ impl<C: SseConnector> SseClient<C> {
         self.subscriber
             .subscribe_mut(&self.req_builder.clone().build(), handler)
     }
-    pub fn post(&mut self) -> &mut Self {
-        self.req_builder.post();
+    pub fn post(mut self) -> Self {
+        let new_req_builder = self.req_builder.post();
+        self.req_builder = new_req_builder;
         self
     }
-    pub fn bearer_auth(&mut self, token: &str) -> &mut Self {
-        self.req_builder.bearer_auth(token);
+    pub fn bearer_auth(mut self, token: &str) -> Self {
+        let new_req_builder = self.req_builder.bearer_auth(token);
+        self.req_builder = new_req_builder;
         self
     }
-    pub fn header(&mut self, key: &str, value: &str) -> &mut Self {
-        self.req_builder.header(key, value);
+    pub fn header(mut self, key: &str, value: &str) -> Self {
+        let new_req_builder = self.req_builder.header(key, value);
+        self.req_builder = new_req_builder;
         self
     }
-    pub fn get(&mut self) -> &mut Self {
-        self.req_builder.get();
+    pub fn get(mut self) -> Self {
+        let new_req_builder = self.req_builder.get();
+        self.req_builder = new_req_builder;
         self
     }
-    pub fn json<S: serde::Serialize>(&mut self, json: S) -> &mut Self {
-        self.req_builder.json(json);
+    pub fn json<S: serde::Serialize>(mut self, json: S) -> Self {
+        let new_req_builder = self.req_builder.json(json);
+        self.req_builder = new_req_builder;
         self
     }
 }
 
-pub struct SseClientBuilder<C: SseConnector> {
+pub struct SseClientBuilder {
     url: Url,
-    connector: Option<C>,
-    req_builder: Option<RequestBuilder>,
+    connector_builder: SseTlsConnectorBuilder,
+    req_builder: RequestBuilder,
 }
-impl SseClientBuilder<SseTlsConnector> {
-    pub fn new(url: impl Into<Url>) -> SseClientBuilder<SseTlsConnector> {
+impl SseClientBuilder {
+    pub fn new(url: impl Into<Url>) -> SseClientBuilder {
         let url = url.into();
         SseClientBuilder {
             url: url.clone(),
-            connector: Some(SseTlsConnectorBuilder::new(&url).build().unwrap()),
-            req_builder: Some(RequestBuilder::new(&url)),
+            connector_builder: SseTlsConnectorBuilder::new(&url),
+            req_builder: RequestBuilder::new(&url),
         }
     }
 }
 
-impl<C: SseConnector> SseClientBuilder<C> {
-    pub fn set_connector<NewC>(self, connector: NewC) -> SseClientBuilder<NewC>
-    where
-        NewC: SseConnector,
-    {
-        SseClientBuilder {
-            connector: Some(connector),
-            url: self.url,
-            req_builder: self.req_builder,
-        }
-    }
-    pub fn proxy(
-        &mut self,
-        proxy: &Url,
-    ) -> std::result::Result<SseClientBuilder<SseTlsConnector>, SseConnectionError> {
-        let mut builder = SseTlsConnectorBuilder::new(&self.url);
-        let connector = builder.proxy(proxy).build()?;
+impl SseClientBuilder {
+    pub fn proxy(self, proxy: &Url) -> std::result::Result<SseClientBuilder, SseConnectionError> {
+        let connector_builder = self.connector_builder.proxy(proxy);
 
         Ok(SseClientBuilder {
             url: self.url.clone(),
-            connector: Some(connector),
-            req_builder: self.req_builder.take(),
+            connector_builder,
+            req_builder: self.req_builder,
         })
     }
-    pub fn add_ca(
-        &mut self,
-        ca: &str,
-    ) -> std::result::Result<SseClientBuilder<SseTlsConnector>, SseConnectionError> {
-        let connector = SseTlsConnectorBuilder::new(&self.url).add_ca(ca).build()?;
+    pub fn add_ca(self, ca: &str) -> std::result::Result<SseClientBuilder, SseConnectionError> {
+        let connector_builder = self.connector_builder.add_ca(ca);
         Ok(SseClientBuilder {
             url: self.url.clone(),
-            connector: Some(connector),
-            req_builder: self.req_builder.take(),
+            connector_builder,
+            req_builder: self.req_builder,
         })
     }
-    pub fn build(&mut self) -> SseClient<C> {
+    pub fn build(self) -> SseClient<SseTlsConnector> {
         SseClient {
-            subscriber: SseSubscriber::new(self.connector.take().unwrap()),
-            req_builder: self.req_builder.take().unwrap(),
+            subscriber: SseSubscriber::new(self.connector_builder.build().unwrap()),
+            req_builder: self.req_builder,
         }
     }
-    pub fn post(&mut self) -> &mut Self {
-        self.req_builder.as_mut().map(|r| r.post());
+    pub fn post(mut self) -> Self {
+        let new_req_builder = self.req_builder.post();
+        self.req_builder = new_req_builder;
         self
     }
-    pub fn json<S: serde::Serialize>(&mut self, json: S) -> &mut Self {
-        self.req_builder.as_mut().map(|r| r.json(json));
+    pub fn json<S: serde::Serialize>(mut self, json: S) -> Self {
+        let new_req_builder = self.req_builder.json(json);
+        self.req_builder = new_req_builder;
         self
     }
-    pub fn header(&mut self, key: &str, value: &str) -> &mut Self {
-        self.req_builder.as_mut().map(|r| r.header(key, value));
+    pub fn header(mut self, key: &str, value: &str) -> Self {
+        let new_req_builder = self.req_builder.header(key, value);
+        self.req_builder = new_req_builder;
         self
     }
-    pub fn bearer_auth(&mut self, token: &str) -> &mut Self {
-        self.req_builder.as_mut().map(|r| r.bearer_auth(token));
+    pub fn bearer_auth(mut self, token: &str) -> Self {
+        let new_req_builder = self.req_builder.bearer_auth(token);
+        self.req_builder = new_req_builder;
         self
     }
 }
@@ -135,11 +127,7 @@ mod tests {
     use crate::{
         http::request::RequestBuilder,
         sse::{
-            self,
-            connector::{
-                chatgpt::{chatgpt_key, message, GptHandler, URL},
-                fakes::FakeSseConnector,
-            },
+            connector::chatgpt::{chatgpt_key, message, GptHandler, URL},
             response::SseResponse,
             subscriber::HandleProgress,
         },
@@ -204,36 +192,5 @@ mod tests {
         println!("gpt > {:?}", result);
         assert!(result.len() > 0);
         assert!(gpt_handler.is_success());
-    }
-    #[test]
-    fn ビルダーパターンでsseのサブスクリプションを行う() {
-        let handler = sse::subscriber::fakes::MockHandler::new();
-        let mut connector = FakeSseConnector::new();
-        connector.set_response("HTTP/1.1 200 OK\r\n");
-        connector.set_response("Content-Type: text/event-stream\r\n");
-        connector.set_response("\r\n\r\n");
-        connector.set_response("data: Hello\r\n");
-        connector.set_response("data: World!\r\n");
-
-        let mut builder =
-            SseClientBuilder::new(&"http://fake.com".try_into().unwrap()).set_connector(connector);
-        let mut sut = builder.post().json(r#"{"name":"John"}"#).build();
-
-        let result = sut.send(&handler);
-
-        assert!(result.is_ok());
-        assert_eq!(handler.called_time(), 2);
-        handler.assert_received(&[
-            SseResponse::Data("Hello".to_string()),
-            SseResponse::Data("World!".to_string()),
-        ]);
-
-        let result = sut.post().json(r#"{"name":"John"}"#).send(&handler);
-        assert!(result.is_ok());
-        assert_eq!(handler.called_time(), 2);
-        handler.assert_received(&[
-            SseResponse::Data("Hello".to_string()),
-            SseResponse::Data("World!".to_string()),
-        ]);
     }
 }

@@ -39,29 +39,28 @@ impl SseTlsConnectorBuilder {
         }
     }
 
-    pub fn add_ca(&mut self, ca_path: impl AsRef<Path>) -> &mut Self {
+    pub fn add_ca(mut self, ca_path: impl AsRef<Path>) -> Self {
         self.ca_paths
             .push(ca_path.as_ref().to_str().unwrap().to_string());
         self
     }
 
-    pub fn proxy(&mut self, proxy_url: impl Into<Url>) -> &mut Self {
+    pub fn proxy(mut self, proxy_url: impl Into<Url>) -> Self {
         self.proxy_url = Some(proxy_url.into());
         self
     }
 
-    pub fn build(&mut self) -> Result<SseTlsConnector> {
+    pub fn build(self) -> Result<SseTlsConnector> {
         // set ca
         let mut ca = RootCertStore::new();
         self.ca_paths
             .iter()
-            .map(|path| ca.add_ca(path))
-            .collect::<std::result::Result<Vec<_>, _>>()
+            .try_for_each(|path| ca.add_ca(path))
             .map_err(|e| SseConnectionError::CAFileIOError(e))?;
 
         // set proxy
-        if let Some(proxy_url) = self.proxy_url.clone() {
-            let client_connection = ClientConnection::proxy_connection(&self.url, &proxy_url, ca)?;
+        if let Some(proxy_url) = self.proxy_url.as_ref() {
+            let client_connection = ClientConnection::proxy_connection(&self.url, proxy_url, ca)?;
             return Ok(SseTlsConnector::new(client_connection));
         }
 
@@ -98,7 +97,7 @@ impl ClientConnection {
         let mut tcp_stream = TcpStream::connect(proxy_url.to_addr_str())
             .map_err(|e| SseConnectionError::ConnectError(e))?;
         let req = RequestBuilder::new(url).connect_request();
-
+        println!("{:#?}", req);
         tcp_stream
             .write_all(req.bytes())
             .map_err(|e| SseConnectionError::ConnectError(e))?;
@@ -110,6 +109,7 @@ impl ClientConnection {
                 break;
             }
             let proxy_response = String::from_utf8_lossy(&buf[..size]);
+            println!("{}", proxy_response);
             if proxy_response.contains("Established") {
                 return Ok(Self::new(client, tcp_stream));
             }
