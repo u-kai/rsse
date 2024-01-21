@@ -97,7 +97,6 @@ impl ClientConnection {
         let mut tcp_stream = TcpStream::connect(proxy_url.to_addr_str())
             .map_err(|e| SseConnectionError::ConnectError(e))?;
         let req = RequestBuilder::new(url).connect_request();
-        println!("{:#?}", req);
         tcp_stream
             .write_all(req.bytes())
             .map_err(|e| SseConnectionError::ConnectError(e))?;
@@ -109,7 +108,6 @@ impl ClientConnection {
                 break;
             }
             let proxy_response = String::from_utf8_lossy(&buf[..size]);
-            println!("{}", proxy_response);
             if proxy_response.contains("Established") {
                 return Ok(Self::new(client, tcp_stream));
             }
